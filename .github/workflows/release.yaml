@@ -46,7 +46,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           if-no-files-found: error
-          path: ${{ github.workspace }}/bazel-bin/spk/maas/maas.spk
+          path: ${{ github.workspace }}/bazel-bin/spk/cmaas/cmaas.spk
           retention-days: 7
       -
         run: bazel shutdown
@@ -81,4 +81,4 @@ jobs:
         run: |
           ls -al
           echo download is ${{ steps.download.outputs.download-path }}
-          gh release upload ${{ steps.release.outputs.tag_name }} maas.spk
+          gh release upload ${{ steps.release.outputs.tag_name }} cmaas.spk
