@@ -33,14 +33,16 @@
       "enabled": true,
       "matchManagers": [
         "bazel",
-        "bazel-module"
+        "bazel-module",
+        "regex"
       ]
     },
     {
       "automerge": true,
       "matchUpdateTypes": [
-        "patch",
-        "minor"
+        "digest",
+        "minor",
+        "patch"
       ]
     }
   ],
