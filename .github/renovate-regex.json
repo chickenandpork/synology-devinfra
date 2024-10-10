@@ -1,0 +1,8 @@
+{
+  "mbs": {
+    "renovate_datasource": "docker",
+    "renovate_depname": "craigbender/cmaas",
+    "sha256": "sha256:af43b05cbc7ca0859f73c3d77c9ca36c627b23daae00b15d59d3dae2d890f48c",
+    "version": "jammy-3.3"
+  }
+}

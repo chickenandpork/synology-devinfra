@@ -1,0 +1,60 @@
+# To install the dependencies for this file:
+# 1) pip install pre-commit
+#   (really, "sudo python3 -m pip install pre-commit")
+#   (really, I've been carrying this boilerplate for years, but now it's all python3?)
+#
+# 2) pre-commit install --allow-missing-config
+#
+# yamllint checks this .pre-commit-config file as well
+---
+repos:
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.33.0
+    hooks:
+      - id: yamllint
+        args: [
+          '-d',
+          '{extends: relaxed, rules: {line-length: {max: 120}}}'
+        ]
+        files: .*\.(yml|yaml)$
+  - repo: https://github.com/executablebooks/mdformat
+    rev: 0.7.17
+    hooks:
+      - id: mdformat
+        additional_dependencies:
+          - mdformat-black==0.1.1
+          - mdformat-gfm==0.3.6
+          - mdformat_mkdocs==3.0.0
+          - mdformat-ruff==0.1.3
+          - mdformat-shfmt==0.1.0
+          - mdformat_tables==1.0.0
+        exclude: CHANGELOG.md
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: no-commit-to-branch
+      - id: trailing-whitespace
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.27.3
+    hooks:
+      - id: check-github-workflows
+      - id: check-renovate
+  - repo: https://github.com/streetsidesoftware/cspell-cli
+    rev: v8.3.0
+    hooks:
+      - id: cspell
+        # a local allowlist of dictionary words in .github/cspell.yaml.  This can get comical --
+        # adding new words in every PR -- but the cost/benefit balance may avoid some embarassing
+        # typos
+        args: ['--config', '.github/cspell.yaml']
+        types: [file, markdown]
+
+  - repo: local
+    hooks:
+      - id: buildifier
+        # name: bazel run @buildifier_prebuilt//:buildifier -- -config .github/buildifier.json
+        description: Cleans up BUILD files as confirmed in starlark linter
+        entry: bash -c 'cd $(pwd) && bazel run @buildifier_prebuilt//:buildifier'
+        files: '\.bazel$|\.bzl$'
+        language: system
+        name: bazel run @buildifier_prebuilt//:buildifier
