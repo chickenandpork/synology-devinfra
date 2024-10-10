@@ -1,0 +1,84 @@
+---
+name: Release
+env:
+  # Building on mac? Don't ever update homebrew: a huge cycles-consumer even if you ARE using it
+  HOMEBREW_NO_AUTO_UPDATE: 1
+
+# yamllint disable-line rule:truthy
+on:
+  push:
+    branches:
+      - master
+
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+    steps:
+      -
+        name: Date-Based Cache key
+        # get a key showing the current week (ISO: yyyyWww)
+        id: week
+        run: echo "::set-output name=iso::$(date +'bazel-%YW%U')"
+      -
+        uses: bazel-contrib/setup-bazel@0.9.0
+        with:
+          # Cache bazel downloads via bazelisk
+          bazelisk-cache: true
+          # Store build cache per workflow.
+          disk-cache: ${{ steps.week.outputs.iso }}
+          # Share repository cache between workflows.
+          repository-cache: true
+      -
+        uses: actions/checkout@v4
+        # action runners have bazelisk: - uses: bazelbuild/setup-bazelisk@v2
+        # https://github.com/bazelbuild/bazel/issues/11062
+      -
+        run: bazel build //...
+      -
+        run: bazel test //... --test_output=errors --test_summary=detailed
+      -
+        name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          if-no-files-found: error
+          path: ${{ github.workspace }}/bazel-bin/spk/maas/maas.spk
+          retention-days: 7
+      -
+        run: bazel shutdown
+
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    needs: [build]
+    steps:
+      - uses: google-github-actions/release-please-action@v4
+        # Settings -> Actions -> General -> Workflow Permissions
+        # - select "Read repo contents", and
+        # - enable "Allow Github Actions to create and approve pull requests"
+        id: release
+        with:
+          release-type: bazel
+      - name: Clone Repo
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/checkout@v4
+      - name: Download artifacts
+        id: download
+        if: ${{ steps.release.outputs.release_created }}
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+      - name: Upload Release Artifacts
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ls -al
+          echo download is ${{ steps.download.outputs.download-path }}
+          gh release upload ${{ steps.release.outputs.tag_name }} maas.spk

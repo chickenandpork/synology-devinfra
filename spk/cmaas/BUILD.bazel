@@ -1,0 +1,175 @@
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@local_renovate_regex//:json.bzl", "version_json")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
+load("@rules_pkg//pkg/private/tar:tar.bzl", "SUPPORTED_TAR_COMPRESSIONS", "pkg_tar")
+load(
+    "@rules_synology//:defs.bzl",
+    "SPK_REQUIRED_SCRIPTS",
+    "docker_compose",
+    "docker_project",
+    "images",
+    "info_file",
+    "maintainer",
+    "privilege_config",
+    "protocol_file",
+    "resource_config",
+    "service_config",
+)
+load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template_rule")
+
+PGCON="postgres://maas:maas@192.168.0.159:5432/maasdb";
+MAAS_DOMAIN="chickenandporn.com"
+MAAS_CONTAINER_NAME="cmaas"
+MAAS_PROFILE="admin"
+MAAS_PASS="admin"
+MAAS_EMAIL="maas-admin@{}".format(MAAS_DOMAIN)
+MAAS_SSH_IMPORT_ID="gh:chickenandpork"
+MAAS_URL="http://localhost:5240/MAAS"
+
+
+# This is the "project" in a docker-project sense: the name of the docker-compose subdir is the
+# name of the multi-container project described in the "compose" file
+PROJECT = "bedrock"
+
+# compose_component is not leaked from the BUILD.bazel, but it used to relationships here
+COMPOSE_COMPONENT = "minecraft_bedrock"
+
+# spk_name is the name of the result -- {SPK_NAME}.spk -- which can container multiple
+# docker-projects
+SPK_NAME = "docker-minecraft-bedrock-server"
+
+# docker_compose represents a name of a docker-compose.yaml file, of which one or more is inside a "docker-project" entry
+docker_compose(
+    name = "cmaas_compose",
+    compose = ":dockercompose",
+    path = "cmaas",
+    project_name = "cmaas",
+)
+
+docker_project(
+    name = "cmaas_project",
+    projects = [":cmaas_compose"],
+)
+
+# check via `bazel query //spk/minecraft-bedrock:info --output=build`
+info_file(
+    name = "info",
+    package_name = "cmaas",
+    #arch_strings = ["noarch"],
+    description = "Containerized-Maas (Craig Bender)",
+    maintainer = "//:chickenandpork",
+    os_min_ver = "7.0-1",  # correct-format=[^\d+(\.\d+){1,2}(-\d+){1,2}$]
+    package_version = "{}-1".format(version_json["mbs"]["version"]),
+)
+
+privilege_config(
+    name = "priv",
+    # run_as_root isn't working: Synology seems to throw a 313 or 319 error whenever I have any valid binaries in the run-as-root.  Need to optimize it over time.
+    #run_as_root= [ "postinst", "preuninst"],
+)
+
+resource_config(
+    name = "rez",
+    resources = [":cmaas_project"],
+)
+
+#https://images.squarespace-cdn.com/content/v1/500a3673c4aa9263a8955641/1551919834344-GX7V5SG9ZDQ1E7XU6JKV/maas-logo.png
+# Minecraft image created by Dall-E: "in the style of Minecraft, create an image of Amakusa, Japan"
+images(
+    name = "icons",
+    src = "@maas_icon//file",
+)
+
+pkg_files(
+    name = "conf",
+    srcs = [
+        ":priv",
+        ":rez",
+    ],
+    attributes = pkg_attributes(
+        mode = "0444",
+    ),
+    prefix = "conf",
+    visibility = ["//visibility:public"],
+)
+
+pkg_tar(
+    name = "package",
+    srcs = [],
+    extension = "tgz",
+    package_dir = "/",
+    deps = [":cmaas_project"],
+)
+
+[copy_file(
+    name = "stub_{}".format(f),
+    src = "@rules_synology//synology:stub_script",
+    out = f,
+) for f in SPK_REQUIRED_SCRIPTS if f not in []]
+
+write_file(
+    name = "insmod_sss_script",
+    out = "start-stop-status",
+    content = [
+        "#!/bin/sh",
+        "",
+        """case "$1" in""",
+        """    start)""",
+        """        ;;""",
+        """    stop)""",
+        """        ;;""",
+        """    status)""",
+        """        ;;""",
+        """esac""",
+        "",
+        "exit 0",
+        "",  # force a newline after the script to simplify diff checks
+    ],
+    is_executable = True,
+    #visibility = ["//visibility:public"],
+)
+
+pkg_files(
+    name = "scripts",
+    srcs = [":insmod_sss_script"] + [":stub_{}".format(f) for f in SPK_REQUIRED_SCRIPTS if f not in []],
+    attributes = pkg_attributes(
+        mode = "0755",
+    ),
+    prefix = "scripts",
+)
+
+pkg_tar(
+    name = "cmaas",
+    srcs = [
+        ":conf",
+        ":icons.group",
+        ":info",
+        ":package",
+        ":scripts",
+    ],
+    extension = "tar",
+    package_file_name = "{}.spk".format("cmaas"),
+    visibility = ["//visibility:public"],
+)
+
+
+
+# to check:   bazel query --output=build //:dockercompose
+expand_template_rule(
+    name = "dockercompose",
+    out = "docker-compose.yaml",
+    substitutions = {
+        "PGCON": PGCON,
+        "MAAS_DOMAIN": MAAS_DOMAIN,
+        "MAAS_CONTAINER_NAME": MAAS_CONTAINER_NAME,
+        "MAAS_PROFILE": MAAS_PROFILE,
+        "MAAS_PASS": MAAS_PASS,
+        "MAAS_EMAIL": MAAS_EMAIL,
+        "MAAS_SSH_IMPORT_ID": MAAS_SSH_IMPORT_ID,
+        "MAAS_URL": MAAS_URL,
+    },
+    template = ":docker-compose.tpl",
+)
+
+
