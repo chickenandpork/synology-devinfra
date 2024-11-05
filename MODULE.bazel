@@ -13,44 +13,20 @@ http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_
 
 # Application icon, sourced from squarespace CDN
 http_file(
+    name = "buchgr_icon",
+    sha256 = "17b0b844fd52deff5328df2ce05e12e6d754ebda75ba1065ee0aa2127f12dcab",
+    urls = [
+        "https://avatars.githubusercontent.com/u/1388179?s=1000&v=4",
+    ],
+)
+
+http_file(
     name = "maas_icon",
     sha256 = "db55a612a931a90f4a212e684b4a122e18d61c1e79cbcf26f022577bd464f5b2",
     urls = [
         "https://images.squarespace-cdn.com/content/v1/500a3673c4aa9263a8955641/1551919834344-GX7V5SG9ZDQ1E7XU6JKV/maas-logo.png",
     ],
 )
-
-
-
-#http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
-#
-## from Mojang site
-#http_archive(
-#    name = "mojang_bedrock_server",
-#    build_file_content = """
-#filegroup(
-#    name="mojang_bedrock_server",
-#    srcs = glob([
-#        "resource_packs/**",
-#        "behavior_packs/**",
-#        "config/**",
-#        "definitions/**",
-#    ]) + [
-#        "allowlist.json",
-#        "bedrock_server",
-#        "bedrock_server_how_to.html",
-#        "permissions.json",
-#        "release-notes.txt",
-#        "server.properties",
-#    ],
-#    visibility = ["//visibility:public"],
-#)
-#    """,
-#    sha256 = "2e86d3f6f545fa2e4cd6736e5f12fbaf1923261232abbfe937a08d3bbe945c60",
-#    urls = [
-#        "https://www.minecraft.net/bedrockdedicatedserver/bin-linux/bedrock-server-1.21.31.04.zip",
-#    ],
-#)
 
 load_json_file = use_repo_rule("//json:load_json_file.bzl", "load_json_file")
 

@@ -1,4 +1,10 @@
 {
+  "bazel-remote-cache": {
+    "renovate_datasource": "docker",
+    "renovate_depname": "buchgr/bazel-remote-cache",
+    "sha256": "sha256:1118f40525782b66b0ab1e747983a7df8918aaff7c933c51401460afba67e9f7",
+    "version": "v2.4.4"
+  },
   "mbs": {
     "renovate_datasource": "docker",
     "renovate_depname": "craigbender/cmaas",
