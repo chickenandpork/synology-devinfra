@@ -40,4 +40,6 @@ jobs:
       -
         run: bazel test //... --test_output=errors --test_summary=detailed
       -
+        run: bazel build //...
+      -
         run: bazel shutdown

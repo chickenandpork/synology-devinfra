@@ -11,62 +11,41 @@ load(
     "docker_project",
     "images",
     "info_file",
-    "maintainer",
     "privilege_config",
-    "protocol_file",
     "resource_config",
-    "service_config",
 )
 
-PGCON = "postgres://maas:maas@192.168.0.159:5432/maasdb"
+PKG_SERIAL = 1
 
-MAAS_DOMAIN = "chickenandporn.com"
+# These are just here to show related text rather than just coincidentally-the-same text
+CONTAINER_NAME = "bazel-remote-cache"
 
-MAAS_CONTAINER_NAME = "cmaas"
+VOLUMENAME = "bazel-remote-cache"
 
-MAAS_PROFILE = "admin"
-
-MAAS_PASS = "admin"
-
-MAAS_EMAIL = "maas-admin@{}".format(MAAS_DOMAIN)
-
-MAAS_SSH_IMPORT_ID = "gh:chickenandpork"
-
-MAAS_URL = "http://localhost:5240/MAAS"
-
-# This is the "project" in a docker-project sense: the name of the docker-compose subdir is the
-# name of the multi-container project described in the "compose" file
-PROJECT = "bedrock"
-
-# compose_component is not leaked from the BUILD.bazel, but it used to relationships here
-COMPOSE_COMPONENT = "minecraft_bedrock"
-
-# spk_name is the name of the result -- {SPK_NAME}.spk -- which can container multiple
-# docker-projects
-SPK_NAME = "docker-minecraft-bedrock-server"
-
-# docker_compose represents a name of a docker-compose.yaml file, of which one or more is inside a "docker-project" entry
 docker_compose(
-    name = "cmaas_compose",
+    name = "buchgr_compose",
     compose = ":dockercompose",
-    path = "cmaas",
-    project_name = "cmaas",
+    path = CONTAINER_NAME,
+    project_name = CONTAINER_NAME,
 )
 
 docker_project(
-    name = "cmaas_project",
-    projects = [":cmaas_compose"],
+    name = "bazel_remote_project",
+    projects = [":buchgr_compose"],
 )
 
 # check via `bazel query //spk/minecraft-bedrock:info --output=build`
 info_file(
     name = "info",
-    package_name = "cmaas",
+    package_name = "bazel-remote-cache",
     #arch_strings = ["noarch"],
-    description = "Containerized-Maas (Craig Bender)",
+    description = "Jakob Buchgraber's Bazel Cache Service",
     maintainer = "//:chickenandpork",
     os_min_ver = "7.0-1",  # correct-format=[^\d+(\.\d+){1,2}(-\d+){1,2}$]
-    package_version = "{}-1".format(version_json["mbs"]["version"]),
+    package_version = "{}-{}".format(
+        version_json["bazel-remote-cache"]["version"].removeprefix("v"),
+        PKG_SERIAL,
+    ),
 )
 
 privilege_config(
@@ -77,14 +56,13 @@ privilege_config(
 
 resource_config(
     name = "rez",
-    resources = [":cmaas_project"],
+    resources = [":bazel_remote_project"],
 )
 
-#https://images.squarespace-cdn.com/content/v1/500a3673c4aa9263a8955641/1551919834344-GX7V5SG9ZDQ1E7XU6JKV/maas-logo.png
-# Minecraft image created by Dall-E: "in the style of Minecraft, create an image of Amakusa, Japan"
+# Logo taken from Jakob's page -- similar to how Jakob's photo is used on the docker image
 images(
     name = "icons",
-    src = "@maas_icon//file",
+    src = "@buchgr_icon//file",
 )
 
 pkg_files(
@@ -105,7 +83,7 @@ pkg_tar(
     srcs = [],
     extension = "tgz",
     package_dir = "/",
-    deps = [":cmaas_project"],
+    deps = [":bazel_remote_project"],
 )
 
 [copy_file(
@@ -122,10 +100,15 @@ write_file(
         "",
         """case "$1" in""",
         """    start)""",
+        """        docker volume ls|grep -e "\\W{0}$$" 2>/dev/null || docker volume create {0}""".format(VOLUMENAME),
         """        ;;""",
         """    stop)""",
         """        ;;""",
         """    status)""",
+        """        /usr/local/bin/docker_inspect {0} | grep -q "\\"Status\\": \\"running\\"" || exit 1""".format(CONTAINER_NAME),
+        """        ;;""",
+        """    log)""",
+        """        docker logs {0}""",
         """        ;;""",
         """esac""",
         "",
@@ -146,7 +129,7 @@ pkg_files(
 )
 
 pkg_tar(
-    name = "cmaas",
+    name = "bazel-remote-cache",
     srcs = [
         ":conf",
         ":icons.group",
@@ -155,7 +138,7 @@ pkg_tar(
         ":scripts",
     ],
     extension = "tar",
-    package_file_name = "{}.spk".format("cmaas"),
+    package_file_name = "{}.spk".format("bazel-remote-cache"),
     visibility = ["//visibility:public"],
 )
 
@@ -164,14 +147,9 @@ expand_template_rule(
     name = "dockercompose",
     out = "docker-compose.yaml",
     substitutions = {
-        "PGCON": PGCON,
-        "MAAS_DOMAIN": MAAS_DOMAIN,
-        "MAAS_CONTAINER_NAME": MAAS_CONTAINER_NAME,
-        "MAAS_PROFILE": MAAS_PROFILE,
-        "MAAS_PASS": MAAS_PASS,
-        "MAAS_EMAIL": MAAS_EMAIL,
-        "MAAS_SSH_IMPORT_ID": MAAS_SSH_IMPORT_ID,
-        "MAAS_URL": MAAS_URL,
+        "{{CONTAINER_NAME}}": CONTAINER_NAME,
+        "{{VERSION}}": version_json["bazel-remote-cache"]["version"],
+        "{{VOLUME}}": VOLUMENAME,
     },
     template = ":docker-compose.tpl",
 )
