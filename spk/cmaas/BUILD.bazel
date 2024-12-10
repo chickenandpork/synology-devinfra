@@ -17,6 +17,7 @@ load(
     "resource_config",
     "service_config",
 )
+load("//json:de_vanity_ubuntu_versions.bzl", fix_version = "convert_ubuntu_vanity_version_to_semver")
 
 PGCON = "postgres://maas:maas@192.168.0.159:5432/maasdb"
 
@@ -66,7 +67,7 @@ info_file(
     description = "Containerized-Maas (Craig Bender)",
     maintainer = "//:chickenandpork",
     os_min_ver = "7.0-1",  # correct-format=[^\d+(\.\d+){1,2}(-\d+){1,2}$]
-    package_version = "{}-1".format(version_json["mbs"]["version"]),
+    package_version = "{}-1".format(fix_version(version_json["mbs"]["version"])),
 )
 
 privilege_config(
