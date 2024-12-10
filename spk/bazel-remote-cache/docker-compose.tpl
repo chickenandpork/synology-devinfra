@@ -8,10 +8,13 @@ services:
     image: buchgr/bazel-remote-cache:{{VERSION}}
     environment:
       BAZEL_REMOTE_DIR: "/data"
-      BAZEL_REMOTE_MAX_SIZE: 1000
-      BAZEL_REMOTE_HTTP_PORT: 8080
-      BAZEL_REMOTE_GRPC_PORT: 9092
       BAZEL_REMOTE_EXPERIMENTAL_REMOTE_ASSET_API: "true"
+      BAZEL_REMOTE_GRPC_PORT: 9092
+      BAZEL_REMOTE_HTTP_PORT: 8080
+      BAZEL_REMOTE_HTTP_PROXY_URL: "http://host.docker.internal:3128/"
+      BAZEL_REMOTE_MAX_SIZE: 1000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8082:8080"
       - "9092:9092"
