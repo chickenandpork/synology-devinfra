@@ -28,6 +28,12 @@ def dockercompose(
         package_version = "0.0.0-0",
         preexisting_volumes = [],
         healthcheck_containernames = []):
+    """
+    Convenience function to expand to a Docker Project worker config.  I could have used a single
+    Docker Compose worker, but this allows me to keep reusing the multiple-project for
+    single-project work, avoiding maintaining two very similar code-paths.
+    """
+
     docker_compose(
         name = "{}~docker_compose".format(name),
         compose = ":dockercompose",
@@ -43,16 +49,17 @@ def dockercompose(
     # check via `bazel query //spk/minecraft-bedrock:info --output=build`
     info_file(
         name = "{}~info".format(name),
-        package_name = project,
         #arch_strings = ["noarch"],
         description = description,
         maintainer = maintainer,
         os_min_ver = os_min_ver,
+        package_name = project,
         package_version = package_version,
     )
 
     privilege_config(
         name = "{}~priv".format(name),
+        username = "sc-{}".format(name),
         # run_as_root isn't working: Synology seems to throw a 313 or 319 error whenever I have any valid binaries in the run-as-root.  Need to optimize it over time.
         #run_as_root= [ "postinst", "preuninst"],
     )
@@ -125,9 +132,13 @@ def dockercompose(
             "",
             """case "$1" in""",
             """    start)""",
-        ] + ["""        docker volume ls|grep -e "\\W{0}\\$" 2>/dev/null || docker volume create \"{0}\"""".format(v) for v in preexisting_volumes] + [
+        ] + [
+            """        docker volume ls|grep -e "\\W{0}\\$" 2>/dev/null || docker volume create \"{0}\"""".format(v) for v in preexisting_volumes
+        ] + [
+            """        su - sc-{0} -c "docker-compose -f /var/packages/{0}/target/{0}/compose.yaml -d up" """.format(name, name),
             """        ;;""",
             """    stop)""",
+            """        su - sc-{0} -c "docker-compose -f /var/packages/{0}/target/{0}/compose.yaml down" """.format(name, name),
             """        ;;""",
             """    status)""",
         ] + ["""        /usr/local/bin/docker_inspect \"{0}\" | grep -q "\\"Status\\": \\"running\\"" || exit 1""".format(c) for c in healthcheck_containernames] + [
