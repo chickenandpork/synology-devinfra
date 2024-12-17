@@ -4,11 +4,17 @@
     "renovate_depname": "buchgr/bazel-remote-cache",
     "sha256": "sha256:8e17332e2ceb8b69f67bb08d6a1a51b3e11aaa5a25644c8a34f09d1ff1811a53",
     "version": "v2.4.4"
-  },
+   },
   "mbs": {
     "renovate_datasource": "docker",
     "renovate_depname": "craigbender/cmaas",
-    "sha256": "sha256:4668f40525782b66b0ab1e747983a7df8918aaff7c933c51401460afba67e9f7",
+     "sha256": "sha256:4668f40525782b66b0ab1e747983a7df8918aaff7c933c51401460afba67e9f7",
     "version": "jammy-3.3"
+  },
+  "redis-stack": {
+    "renovate_datasource": "redis-stack",
+    "renovate_depname": "redis/redis-stack",
+    "sha256": "sha256:4668f40525782b66b0ab1e747983a7df8918aaff7c933c51401460afba67e9f7",
+    "version": "6.2.6-v17"
   }
 }

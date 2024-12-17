@@ -9,6 +9,7 @@ bazel_dep(name = "aspect_bazel_lib", version = "2.10.0")
 bazel_dep(name = "bazel_skylib", version = "1.7.1")
 bazel_dep(name = "rules_pkg", version = "1.0.1")
 bazel_dep(name = "rules_synology", version = "0.1.1")
+local_path_override(module_name = "rules_synology", path = "../rules_synology")
 
 http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 
@@ -26,6 +27,14 @@ http_file(
     sha256 = "db55a612a931a90f4a212e684b4a122e18d61c1e79cbcf26f022577bd464f5b2",
     urls = [
         "https://images.squarespace-cdn.com/content/v1/500a3673c4aa9263a8955641/1551919834344-GX7V5SG9ZDQ1E7XU6JKV/maas-logo.png",
+    ],
+)
+
+http_file(
+    name = "redis_gravatar",
+    sha256 = "ba2a4304c6cddb59547693a8bc7e2ede9d39c8f6d9e595ac384af2a4f6e8eeae",
+    urls = [
+        "https://www.gravatar.com/avatar/d97b18081fdbcb9838acfeaa4335e3d3?s=120&r=g&d=404",
     ],
 )
 
