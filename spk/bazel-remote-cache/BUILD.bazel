@@ -1,148 +1,32 @@
 load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template_rule")
-load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
-load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@local_renovate_regex//:json.bzl", "version_json")
-load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
-load("@rules_pkg//pkg/private/tar:tar.bzl", "SUPPORTED_TAR_COMPRESSIONS", "pkg_tar")
-load(
-    "@rules_synology//:defs.bzl",
-    "SPK_REQUIRED_SCRIPTS",
-    "docker_compose",
-    "docker_project",
-    "images",
-    "info_file",
-    "privilege_config",
-    "resource_config",
-)
+load("//lib:dockercompose.bzl", "dockercompose")
 
 PKG_SERIAL = 1
 
-# These are just here to show related text rather than just coincidentally-the-same text
-CONTAINER_NAME = "bazel-remote-cache"
-
+CONTAINER_NAME = "bazel-remote-cache"  # technically the same values, but self-documents better
 VOLUMENAME = "bazel-remote-cache"
 
-docker_compose(
-    name = "buchgr_compose",
+# To check payloads, try for example:
+#     bazel build spk/bazel-remote-cache:bazel-remote-cache   && \
+#     tar xzf bazel-bin/spk/bazel-remote-cache/bazel-remote-cache.spk -O scripts/postinst
+dockercompose(
+    name = "bazel-remote-cache",
     compose = ":dockercompose",
-    path = CONTAINER_NAME,
-    project_name = CONTAINER_NAME,
-)
-
-docker_project(
-    name = "bazel_remote_project",
-    projects = [":buchgr_compose"],
-)
-
-# check via `bazel query //spk/minecraft-bedrock:info --output=build`
-info_file(
-    name = "info",
-    package_name = "bazel-remote-cache",
-    #arch_strings = ["noarch"],
     description = "Jakob Buchgraber's Bazel Cache Service",
+    healthcheck_containernames = [CONTAINER_NAME],
+    icon_file = "@buchgr_icon//file",
     maintainer = "//:chickenandpork",
-    os_min_ver = "7.0-1",  # correct-format=[^\d+(\.\d+){1,2}(-\d+){1,2}$]
+    # os_min_ver = "7.0-1",  # correct-format=[^\d+(\.\d+){1,2}(-\d+){1,2}$]
     package_version = "{}-{}".format(
         version_json["bazel-remote-cache"]["version"].removeprefix("v"),
         PKG_SERIAL,
     ),
+    preexisting_volumes = [VOLUMENAME],
+    project = "bazel-remote-cache",
 )
 
-privilege_config(
-    name = "priv",
-    # run_as_root isn't working: Synology seems to throw a 313 or 319 error whenever I have any valid binaries in the run-as-root.  Need to optimize it over time.
-    #run_as_root= [ "postinst", "preuninst"],
-)
-
-resource_config(
-    name = "rez",
-    resources = [":bazel_remote_project"],
-)
-
-# Logo taken from Jakob's page -- similar to how Jakob's photo is used on the docker image
-images(
-    name = "icons",
-    src = "@buchgr_icon//file",
-)
-
-pkg_files(
-    name = "conf",
-    srcs = [
-        ":priv",
-        ":rez",
-    ],
-    attributes = pkg_attributes(
-        mode = "0444",
-    ),
-    prefix = "conf",
-    visibility = ["//visibility:public"],
-)
-
-pkg_tar(
-    name = "package",
-    srcs = [],
-    extension = "tgz",
-    package_dir = "/",
-    deps = [":bazel_remote_project"],
-)
-
-[copy_file(
-    name = "stub_{}".format(f),
-    src = "@rules_synology//synology:stub_script",
-    out = f,
-) for f in SPK_REQUIRED_SCRIPTS if f not in []]
-
-write_file(
-    name = "insmod_sss_script",
-    out = "start-stop-status",
-    content = [
-        "#!/bin/sh",
-        "",
-        """case "$1" in""",
-        """    start)""",
-        """        docker volume ls|grep -e "\\W{0}$$" 2>/dev/null || docker volume create {0}""".format(VOLUMENAME),
-        """        ;;""",
-        """    stop)""",
-        """        ;;""",
-        """    status)""",
-        """        /usr/local/bin/docker_inspect {0} | grep -q "\\"Status\\": \\"running\\"" || exit 1""".format(CONTAINER_NAME),
-        """        ;;""",
-        """    log)""",
-        """        docker logs {0}""",
-        """        ;;""",
-        """esac""",
-        "",
-        "exit 0",
-        "",  # force a newline after the script to simplify diff checks
-    ],
-    is_executable = True,
-    #visibility = ["//visibility:public"],
-)
-
-pkg_files(
-    name = "scripts",
-    srcs = [":insmod_sss_script"] + [":stub_{}".format(f) for f in SPK_REQUIRED_SCRIPTS if f not in []],
-    attributes = pkg_attributes(
-        mode = "0755",
-    ),
-    prefix = "scripts",
-)
-
-pkg_tar(
-    name = "bazel-remote-cache",
-    srcs = [
-        ":conf",
-        ":icons.group",
-        ":info",
-        ":package",
-        ":scripts",
-    ],
-    extension = "tar",
-    package_file_name = "{}.spk".format("bazel-remote-cache"),
-    visibility = ["//visibility:public"],
-)
-
-# to check:   bazel query --output=build //:dockercompose
+# to check:   bazel query --output=build //spk/bazel-remote-cache:dockercompose
 expand_template_rule(
     name = "dockercompose",
     out = "docker-compose.yaml",
