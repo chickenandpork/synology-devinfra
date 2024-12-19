@@ -1,0 +1,38 @@
+load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template_rule")
+load("@local_renovate_regex//:json.bzl", "version_json")
+load("//lib:dockercompose.bzl", "dockercompose")
+load("//lib:version-cleanup.bzl", "cleanup_redis_vanity_version")
+
+PKG_SERIAL = 1
+
+CONTAINER_NAME = "redis-stack"  # technically the same values, but self-documents better
+VOLUMENAME = "redis-stack"
+VERSION=cleanup_redis_vanity_version(version_json["redis-stack"]["version"])
+
+# To check payloads, try for example:
+#     bazel build spk/bazel-remote-cache:bazel-remote-cache   && \
+#     tar xzf bazel-bin/spk/bazel-remote-cache/bazel-remote-cache.spk -O scripts/postinst
+dockercompose(
+    name = "redis-stack",
+    compose = ":dockercompose",
+    description = "Redis server with additional database capabilities and the RedisInsight",
+    healthcheck_containernames = [CONTAINER_NAME],
+    icon_file = "@redis_gravatar//file",
+    maintainer = "//:chickenandpork",
+    # os_min_ver = "7.0-1",  # correct-format=[^\d+(\.\d+){1,2}(-\d+){1,2}$]
+    package_version = "{}-{}".format( VERSION, PKG_SERIAL,),
+    preexisting_volumes = [VOLUMENAME],
+    project = "redis-stack",
+)
+
+# to check:   bazel query --output=build //spk/bazel-remote-cache:dockercompose
+expand_template_rule(
+    name = "dockercompose",
+    out = "docker-compose.yaml",
+    substitutions = {
+        "{{CONTAINER_NAME}}": CONTAINER_NAME,
+        "{{VERSION}}": version_json["redis-stack"]["version"],
+        "{{VOLUME}}": VOLUMENAME,
+    },
+    template = ":docker-compose.tpl",
+)
