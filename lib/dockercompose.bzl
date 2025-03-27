@@ -24,10 +24,11 @@ def dockercompose(
         description,
         icon_file,  # ie "@buchgr_icon//file"
         maintainer,  # ie "//:chickenandpork"
+        healthcheck_containernames = [],
         os_min_ver = "7.0-1",  # correct-format=[^\d+(\.\d+){1,2}(-\d+){1,2}$]
         package_version = "0.0.0-0",
         preexisting_volumes = [],
-        healthcheck_containernames = []):
+        username = None):
     docker_compose(
         name = "{}~docker_compose".format(name),
         compose = ":dockercompose",
@@ -53,6 +54,7 @@ def dockercompose(
 
     privilege_config(
         name = "{}~priv".format(name),
+        username = username or "sc-{}".format(name),
         # run_as_root isn't working: Synology seems to throw a 313 or 319 error whenever I have any valid binaries in the run-as-root.  Need to optimize it over time.
         #run_as_root= [ "postinst", "preuninst"],
     )
@@ -104,9 +106,9 @@ def dockercompose(
         name = name,
         srcs = [
             "{}~{}".format(name, k)
-            for k in ["conf", "icons.group", "info", "package", "scripts"]
+            for k in ["conf", "icons", "info", "package", "scripts"]
             # ":conf",
-            # ":icons.group",
+            # ":icons",
             # ":info",
             # ":package",
             # ":scripts",
