@@ -1,0 +1,16 @@
+# based on https://github.com/hashicorp/nomad/issues/11618#issue-1071925408
+[Unit]
+Description=nomad
+Documentation=https://www.nomadproject.io/docs/
+After=network-online.target
+
+[Service]
+Type=simple
+Slice=nomad.slice
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStart=/var/packages/nomad/target/bin/nomad agent -config "/var/packages/nomad/shares/nomad/etc/nomad.d/nomad.hcl" -config "/var/packages/nomad/shares/nomad/etc/nomad.d/"
+ExecStop=/bin/kill $MAINPID
+KillMode=process
+KillSignal=SIGINT
+Restart=on-failure
+RestartSec=5

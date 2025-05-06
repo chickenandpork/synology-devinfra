@@ -7,8 +7,12 @@ bazel_dep(name = "buildifier_prebuilt", version = "8.0.3", dev_dependency = True
 
 bazel_dep(name = "aspect_bazel_lib", version = "2.16.0")
 bazel_dep(name = "bazel_skylib", version = "1.7.1")
+bazel_dep(name = "rules_multitool", version = "1.2.0")
+bazel_dep(name = "platforms", version = "0.0.11")
 bazel_dep(name = "rules_pkg", version = "1.1.0")
 bazel_dep(name = "rules_synology", version = "0.2.3")
+
+# local_path_override(module_name = "rules_synology", path = "../rules_synology")
 
 http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 
@@ -30,6 +34,15 @@ http_file(
     ],
 )
 
+# an SVG icon requires rules_synology-0.2.3 or later for resize tool
+http_file(
+    name = "nomad_icon",
+    sha256 = "58ba3cd1f0a6e696482e60252c58ac132912582dc6089849936112dfd2ecc862",
+    urls = [
+        "https://hyzxph.media.zestyio.com/blog-nomad-list.svg",
+    ],
+)
+
 load_json_file = use_repo_rule("//json:load_json_file.bzl", "load_json_file")
 
 load_json_file(
@@ -37,3 +50,7 @@ load_json_file(
     src = "//:.github/renovate-regex.json",
     variable_name = "version_json",
 )
+
+multitool = use_extension("@rules_multitool//multitool:extension.bzl", "multitool")
+multitool.hub(lockfile = "//:multitool.lock.json")
+use_repo(multitool, "multitool")
