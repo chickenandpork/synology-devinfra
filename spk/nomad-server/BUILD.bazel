@@ -1,0 +1,337 @@
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_filegroup", "pkg_files", "pkg_mkdirs", "strip_prefix")
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load("@rules_synology//:defs.bzl", "SPK_REQUIRED_SCRIPTS", "data_share", "image", "images", "info_file", "maintainer", "privilege_config", "protocol_file", "resource_config", "service_config", "systemd_user_unit", "usr_local_linker")
+
+info_file(
+    name = "info",
+    package_name = "nomad",
+    arch_strings = ["denverton"],
+    description = "An easy-to-use, flexible, and performant workload orchestrator",
+    displayname="HashiCorp Nomad",
+    maintainer = "//:chickenandpork",
+    os_min_ver = "7.0-1",  # correct-format=[^\d+(\.\d+){1,2}(-\d+){1,2}$]
+    package_version = "1.10.0-1",
+    support_conf_folder=True,
+    dsmuidir="ui",
+    dsmappname=["SYNO.SDS.Nomad"],
+    os_max_ver="",
+    beta = True,
+
+    # silent_install="no"
+    # silent_uninstall="no"
+    # silent_upgrade="no"
+)
+
+# KNOWN ISSUES:
+# - systemd-user-unit doesn't copy the pkguser-<>.service.  using conf/systemd/... to workaround
+# - uninstall doesn't pre-stop the service
+# - still need a manual `sudo synosystemctl start pkg-user-nomad.service` after install (need to track down the failure)
+# - need to `sudo /var/packages/nomad/target/bin/nomad acl bootstrap` to generate an ACL token:
+# ```
+# $ sudo /var/packages/nomad/target/bin/nomad acl bootstrap
+# Accessor ID  = ...
+# Secret ID    = 12345678-90ab-cdef-0123-456789abcdef
+# Name         = Bootstrap Token
+# ```
+# The value of `Secret-ID` (not my real value) can then be used as the token on
+# http://<ServerIP>4646/ui/settings/tokens
+
+INNER_SYSTEMD_SERVICE = "pkg-user-nomad.service"
+
+service_config( name="nomad_ui_port", description="Nomad UI", dst_ports = "4646/tcp", title = "Nomad UI")
+service_config( name="nomadserver-rpc", description="nomadserver-RPC (tcp)", dst_ports = "4647/tcp", title = "Nomad Server RPC Port")
+service_config( name="nomadserver-serftcp", description="nomadserver-Serf (tcp)", dst_ports = "4648/tcp", title = "Nomad Server Serf Port")
+service_config( name="nomadserver-serfudp", description="nomadserver-Serf (udp)", dst_ports = "4648/udp", title = "Nomad Server Serf Port")
+
+protocol_file(
+    name = "protocol",
+    package_name = "nomad",
+    service_config = [
+        ":nomad_ui_port",
+        #":nomadserver-rpc",
+        #":nomadserver-serftcp",
+        #":nomadserver-serfudp",
+    ],
+)
+
+data_share(
+  name = "datashare",
+  sharename = "nomad",
+  permissions = {
+    "nomad": "rw",
+  },
+)
+
+systemd_user_unit(
+    name = "systemd",
+    # TODO: make this create a DefaultInfo() return on the rule that is picked up in
+    # resource_config() to package the unit file
+    #unit = ":nomad.service",
+)
+
+usr_local_linker(
+    name = "linker",
+    bin = [ "bin/nomad" ],
+)
+
+resource_config(
+    name = "rez",
+    resources = [":datashare", ":linker", ":protocol", ":systemd"],
+)
+
+privilege_config(
+    name = "priv",
+    groupname = "hashicorp",
+    username = "nomad",
+)
+
+pkg_files(
+    name = "conf",
+    srcs = [
+        ":nomad.service",
+        ":priv",
+        ":rez",
+    ],
+    attributes = pkg_attributes(
+        mode = "0444",
+    ),
+    prefix = "conf",
+    renames = {
+        "nomad.service": "systemd/{}".format(INNER_SYSTEMD_SERVICE),
+    },
+    visibility = ["//visibility:public"],
+)
+
+pkg_files(
+    name = "license",
+    srcs = [
+        ":MIT-LICENSE.txt",
+    ],
+    attributes = pkg_attributes(
+        mode = "0444",
+    ),
+    renames = {
+        "MIT-LICENSE.txt": "LICENSE",
+    },
+    visibility = ["//visibility:public"],
+)
+
+# Create icon images
+images(
+    name = "icons",
+    src = "@nomad_icon//file",
+)
+
+APP_ICON = "package_icon_256.png"
+APP_ICON_IN_UI = "images/nomad_256.png"
+image(
+    name = "icon_256",
+    image = APP_ICON,
+    src = "@nomad_icon//file",
+    size = 256,
+)
+
+pkg_tar(
+    name = "package",
+    srcs = [
+        ":protocol",
+        #":bogus-start-file",
+        ":genstart",
+    ],
+    deps = [
+        ":package-bin",
+        ":package-ui",
+    ],
+    extension = "tgz",
+    #package_dir = "/conf",
+    remap_paths = {
+        "/nomad.sc": "/conf/nomad.sc",
+    },
+)
+
+pkg_tar(
+    name = "package-bin",
+    srcs = select({
+        "@platforms//cpu:arm64": [ "@@rules_multitool++multitool+multitool.nomad.linux_arm64//tools/nomad:linux_arm64_executable" ],
+        "@platforms//cpu:x86_64": [ "@@rules_multitool++multitool+multitool.nomad.linux_x86_64//tools/nomad:linux_x86_64_executable" ],
+	# intentionally no default to catch fenceposting
+    }) + [ "LICENSE-MariaDB-Hashicorp.txt" ],
+    extension = "tgz",
+    package_dir = "/bin",
+
+    # remap_paths are based on the full abspath of the resource, less the package_dir extension.
+    # This is why /bin/linux_x86_64_executable in the archive matches /linux_x86_64_executable
+    # and is rewritten /nomad before the package_dir is applied.
+    remap_paths = {
+        # provide both, but the matches aren't mutually-exclusive because they don't need to be.
+        # If there is a clash, it suggests that the select() is broken
+        "/linux_x86_64_executable": "/nomad",
+        "/linux_arm64_executable": "/nomad",
+    },
+)
+
+# Likely better as a basic local file
+write_file(
+  name = "genstart",
+  out = "start.sh",
+  content = [
+    "#!/bin/sh",
+    "",
+    """/var/packages/{}/target/bin/nomad agent -config "/var/packages/{}/shares/{}/etc/nomad.d/nomad.hcl" -config "/var/packages/{}/shares/{}/etc/nomad.d/" """.format(
+        "nomad",  # packagename
+        "nomad",  # packagename
+        "nomad",  # sharename
+        "nomad",  # packagename
+        "nomad",  # sharename
+    ),
+    "",
+  ],
+)
+
+# Likely better as a basic local file
+write_file(
+  name = "ui-config",
+  out = "config",
+  content = [
+    "{",
+        '".url": {',
+            '"SYNO.SDS.Nomad": {',
+                '"title": "Nomad UI",',
+                '"desc": "Nomad UI",',
+                '"icon": "{}",'.format(APP_ICON_IN_UI),
+                '"type": "url",',
+                '"url": "@NOMAD_WEB_UI_URL@"',
+            "}",
+        "}",
+    "}",
+  ],
+)
+
+pkg_tar(
+    name = "package-ui",
+    srcs = [
+      ":icon_256",
+      ":ui-config",
+    ],
+    extension = "tgz",
+    package_dir = "/ui",
+    remap_paths = {
+      "/{}".format(APP_ICON): "/{}".format(APP_ICON_IN_UI),
+    },
+)
+
+# A script rather than a static file to allow replacement of the IP on the interface that is the
+# path to the default route.  Will need to see whether it works with /dev/bondX interfaces
+#
+# Likely better as a basic local file
+write_file(
+    name = "install_uifile_script",
+    out = "install_uifile.sh",
+    content = [
+        "#!/bin/sh",
+        "",
+        """SYNOLOGY_IP=$(ip route get "$(ip route show 0.0.0.0/0 | grep -oP 'via \\K\\S+')" | grep -oP 'src \\K\\S+'|sed -e 's/src //g')""",
+
+        "",
+        """tee "$SYNOPKG_TEMP_LOGFILE" <<EOF""",
+        "[",
+        "  {",
+        """    "step_title": "Nomad Agent Configuration",""",
+        """    "items": [""",
+        "      {",
+        """        "type": "textfield",""",
+        """        "desc": "Nomad Web UI URL",""",
+        """        "subitems": [""",
+        "          {",
+        """            "key": "pkgwizard_nomad_web_ui_url",""",
+        """            "defaultValue": "http://$SYNOLOGY_IP:4646" """,
+        "          }",
+        "        ]",
+        "      }",
+        "    ]",
+        "  }",
+        "];",
+        "EOF",
+        "",
+        "exit 0",
+        "",
+    ],
+)
+
+pkg_tar(
+    name = "wizard_uifiles",
+    srcs = [
+      ":install_uifile_script",
+    ],
+    extension = "tgz",
+    package_dir = "/WIZARD_UIFILES",
+)
+
+# Like the other two, this is likely better as a basic local file
+write_file(
+    name = "sss",
+    out = "start-stop-status",
+    content = [
+        "#!/bin/bash",
+        "",
+        """case "$1" in""",
+        "    start)",
+        "            synosystemctl start {}".format(INNER_SYSTEMD_SERVICE),
+        "        ;;",
+        "    stop)",
+        "            synosystemctl stop {}".format(INNER_SYSTEMD_SERVICE),
+        "        ;;",
+        "    status)",
+        "            synosystemctl get-active-status {}".format(INNER_SYSTEMD_SERVICE),
+        "        ;;",
+        "    log)",
+        """        echo "" """,
+        "        ;;",
+        "    *)",
+        """        echo "Usage: $0 {start|stop|status}" >&2""",
+        "        exit 1",
+        "        ;;",
+        "esac",
+    ],
+)
+
+NOMAD_REQUIRED_SCRIPTS = [ f for f in SPK_REQUIRED_SCRIPTS if f not in [ "postinst", "postuninst", "start_stop_status" ]]
+
+[copy_file(
+    name = "stub_{}".format(f),
+    src = "@rules_synology//synology:stub_script",
+    out = f,
+) for f in NOMAD_REQUIRED_SCRIPTS]
+
+pkg_files(
+    name = "scripts",
+    srcs = [":sss", ":postinst", ":postuninst" ] + [":stub_{}".format(f) for f in NOMAD_REQUIRED_SCRIPTS],
+    attributes = pkg_attributes(
+        mode = "0755",
+    ),
+    prefix = "scripts",
+)
+
+pkg_tar(
+    name = "spk",
+    srcs = [
+        ":conf",
+        ":icons",
+        ":info",
+        ":license",
+        ":package",
+        ":scripts",
+        "@rules_pkg//pkg:verify_archive_test_main.py.tpl",
+    ],
+    deps = [
+        #":scripts",
+        ":wizard_uifiles",
+    ],
+    extension = "tar",
+    package_file_name = "nomadserver.spk",
+    visibility = ["//visibility:public"],
+)
+
+
