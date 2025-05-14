@@ -3,8 +3,8 @@
   "customManagers": [
     {
       "customType": "regex",
-      "fileMatch": [
-        ".github/workflows/.*.yml"
+      "managerFilePatterns": [
+        "/.github/workflows/.*.yml/"
       ],
       "matchStrings": [
         "renovatebot datasource=(?<datasource>.*?) depName=(?<depName>.*?)( versioning=(?<versioning>.*?))?\\s.*?_VERSION: (?<currentValue>.*)\\s"
@@ -13,8 +13,8 @@
     },
     {
       "customType": "regex",
-      "fileMatch": [
-        "renovate-regex.json$"
+      "managerFilePatterns": [
+        "/renovate-regex.json$/"
       ],
       "matchStrings": [
         "\"renovate_datasource\": \"(?<datasource>.*?)\",\\s    \"renovate_depname\": \"(?<depName>.*?)\",\\s(    \"renovate_versioning\": \"(?<versioning>.*?)\",\\s)?    \"sha256\": \"(?<currentDigest>.*?)\",\\s    \"version\": \"(?<currentValue>.*?)\""
@@ -23,7 +23,7 @@
     }
   ],
   "extends": [
-    "config:base"
+    "config:recommended"
   ],
   "labels": [
     "dependencies"
@@ -34,7 +34,7 @@
       "matchManagers": [
         "bazel",
         "bazel-module",
-        "regex"
+        "custom.regex"
       ]
     },
     {
