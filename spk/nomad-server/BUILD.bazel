@@ -139,9 +139,11 @@ pkg_tar(
         ":protocol",
         #":bogus-start-file",
         ":genstart",
+        "example-nomad-client-config",
     ],
     deps = [
         ":package-bin",
+        ":package-etc",
         ":package-ui",
     ],
     extension = "tgz",
@@ -170,6 +172,13 @@ pkg_tar(
         "/linux_x86_64_executable": "/nomad",
         "/linux_arm64_executable": "/nomad",
     },
+)
+
+pkg_tar(
+    name = "package-etc",
+    srcs = [ "nomad-avahi.service" ],
+    extension = "tgz",
+    package_dir = "/etc",
 )
 
 # Likely better as a basic local file
@@ -275,19 +284,37 @@ write_file(
     out = "start-stop-status",
     content = [
         "#!/bin/bash",
+        #"",
+        #"# FIXME",
+        #"exec 2>>/tmp/nomad-sss",
+        #"set -x",
         "",
         """case "$1" in""",
         "    start)",
         "            synosystemctl start {}".format(INNER_SYSTEMD_SERVICE),
+        # avahi sees a file -- not a link -- changing, so automatically reacts to the new advert
+        "            cp /var/packages/nomad/target/etc/nomad-avahi.service /etc/avahi/services/nomad.service",
         "        ;;",
         "    stop)",
         "            synosystemctl stop {}".format(INNER_SYSTEMD_SERVICE),
+        "            rm /etc/avahi/services/nomad.service",
         "        ;;",
         "    status)",
         "            synosystemctl get-active-status {}".format(INNER_SYSTEMD_SERVICE),
         "        ;;",
         "    log)",
         """        echo "" """,
+        "        ;;",
+        "    preflight)",
+        """            # not reachable via "sudo systemctl preflight nomad""",
+        """            # only via "sudo /var/packages/nomad/scripts/start-stop-status preflight""",
+        "            ( set -x  # FIXME ",
+        "            ls -al /usr/local/lib/systemd/system/pkg-user-nomad.service",
+        "            ls -al /usr/local/lib/systemd/system/pkgctl-nomad.service",
+        "            systemctl list-units | grep pkg-user-nomad.service",
+        "            systemctl list-units | grep pkgctl-nomad.service",
+        "            systemctl list-units | grep nomad.slice",
+        "            )",
         "        ;;",
         "    *)",
         """        echo "Usage: $0 {start|stop|status}" >&2""",
@@ -297,7 +324,7 @@ write_file(
     ],
 )
 
-NOMAD_REQUIRED_SCRIPTS = [ f for f in SPK_REQUIRED_SCRIPTS if f not in [ "postinst", "postuninst", "start_stop_status" ]]
+NOMAD_REQUIRED_SCRIPTS = [ f for f in SPK_REQUIRED_SCRIPTS if f not in [ "postinst", "postuninst", "preuninst", "start_stop_status" ]]
 
 [copy_file(
     name = "stub_{}".format(f),

@@ -1,0 +1,26 @@
+#!/bin/sh
+set -e
+
+export NOMAD_SHARE_DIR="/var/packages/$SYNOPKG_PKGNAME/shares/nomad"
+
+# > Please save your package log under /var/packages/[package_id]/var/ (e.g., /var/packages/TextEditor/var/log/texteditor.log)
+# https://help.synology.com/developer-guide/resource_acquisition/syslog_config.html
+
+#LOG_DIR="/var/packages/$SYNOPKG_PKGNAME/var/log"
+LOG_DIR="/var/log/nomad"  # FIXME
+mkdir -p "${LOG_DIR}"
+LOG_FILE="${LOG_DIR}/preuninst.log"
+
+echo "$(date --iso-8601=second) Starting preuninst with: NOMAD_SHARE_DIR=${NOMAD_SHARE_DIR}" >${LOG_FILE}
+
+# We do not remove ${NOMAD_SHARE_DIR}/var/lib/nomad nor ${NOMAD_SHARE_DIR}/etc/nomad.d because
+# they're created where files may persist
+
+# ensure stopped before remove: empirically this doesn't get done for us
+# (but uninstall does indirectly stop the service)
+/usr/syno/bin/synosystemctl uninstall pkgctl-nomad.service 
+/usr/syno/bin/synosystemctl uninstall pkg-user-nomad.service 
+
+echo "$(date --iso-8601=second) PreUnInst complete" >>${LOG_FILE}
+
+exit 0
