@@ -139,9 +139,11 @@ pkg_tar(
         ":protocol",
         #":bogus-start-file",
         ":genstart",
+        "example-nomad-client-config",
     ],
     deps = [
         ":package-bin",
+        ":package-etc",
         ":package-ui",
     ],
     extension = "tgz",
@@ -170,6 +172,13 @@ pkg_tar(
         "/linux_x86_64_executable": "/nomad",
         "/linux_arm64_executable": "/nomad",
     },
+)
+
+pkg_tar(
+    name = "package-etc",
+    srcs = [ "nomad-avahi.service" ],
+    extension = "tgz",
+    package_dir = "/etc",
 )
 
 # Likely better as a basic local file
@@ -283,9 +292,12 @@ write_file(
         """case "$1" in""",
         "    start)",
         "            synosystemctl start {}".format(INNER_SYSTEMD_SERVICE),
+        # avahi sees a file -- not a link -- changing, so automatically reacts to the new advert
+        "            cp /var/packages/nomad/target/etc/nomad-avahi.service /etc/avahi/services/nomad.service",
         "        ;;",
         "    stop)",
         "            synosystemctl stop {}".format(INNER_SYSTEMD_SERVICE),
+        "            rm /etc/avahi/services/nomad.service",
         "        ;;",
         "    status)",
         "            synosystemctl get-active-status {}".format(INNER_SYSTEMD_SERVICE),

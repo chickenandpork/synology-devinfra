@@ -1,0 +1,15 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+
+<service-group>
+  <name replace-wildcards="yes">%h Nomad</name>
+  <service>
+    <type>_http._tcp</type>
+    <port>4646</port>
+    <!-- <host-name>nomad.local</host-name> -->
+  </service>
+  <service>
+    <type>_nomad-rpc._tcp</type>
+    <port>4647</port>
+  </service>
+</service-group>

@@ -1,0 +1,23 @@
+# Example nomad agent config file for a client-only connection to an advertised nomad in server mode.
+#
+# This leverages the expected mDNS advertisement to find the nomad server.  We may choose to use
+# the "advertise" block in the config, but these are really indications of where to connect once
+# the server is found: "yo, you connected to me, but <redirect> really use {this} IP/port".  The
+# "advertise" block makes little sense in a client-only mode, since there should likely be no
+# second-order client connecting through to the server.
+#
+# this example server_join matches the data published to mDNS (Avahi, DNS-SD) by the server config.
+
+log_level = "INFO"
+data_dir  = "/opt/nomad"
+
+client {
+  enabled = true
+}
+
+# Join Nomad servers via mDNS using go-discover
+server_join {
+  retry_join = ["provider=mdns service=_nomad-rpc.local"]
+  retry_max = 5
+  retry_interval = "15s"
+}
