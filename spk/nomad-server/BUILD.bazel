@@ -275,6 +275,10 @@ write_file(
     out = "start-stop-status",
     content = [
         "#!/bin/bash",
+        #"",
+        #"# FIXME",
+        #"exec 2>>/tmp/nomad-sss",
+        #"set -x",
         "",
         """case "$1" in""",
         "    start)",
@@ -289,6 +293,17 @@ write_file(
         "    log)",
         """        echo "" """,
         "        ;;",
+        "    preflight)",
+        """            # not reachable via "sudo systemctl preflight nomad""",
+        """            # only via "sudo /var/packages/nomad/scripts/start-stop-status preflight""",
+        "            ( set -x  # FIXME ",
+        "            ls -al /usr/local/lib/systemd/system/pkg-user-nomad.service",
+        "            ls -al /usr/local/lib/systemd/system/pkgctl-nomad.service",
+        "            systemctl list-units | grep pkg-user-nomad.service",
+        "            systemctl list-units | grep pkgctl-nomad.service",
+        "            systemctl list-units | grep nomad.slice",
+        "            )",
+        "        ;;",
         "    *)",
         """        echo "Usage: $0 {start|stop|status}" >&2""",
         "        exit 1",
@@ -297,7 +312,7 @@ write_file(
     ],
 )
 
-NOMAD_REQUIRED_SCRIPTS = [ f for f in SPK_REQUIRED_SCRIPTS if f not in [ "postinst", "postuninst", "start_stop_status" ]]
+NOMAD_REQUIRED_SCRIPTS = [ f for f in SPK_REQUIRED_SCRIPTS if f not in [ "postinst", "postuninst", "preuninst", "start_stop_status" ]]
 
 [copy_file(
     name = "stub_{}".format(f),
