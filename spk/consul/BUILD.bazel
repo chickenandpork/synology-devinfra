@@ -1,0 +1,233 @@
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_filegroup", "pkg_files", "pkg_mkdirs", "strip_prefix")
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load("@rules_synology//:defs.bzl", "SPK_REQUIRED_SCRIPTS", "data_share", "image", "images", "info_file", "maintainer", "privilege_config", "protocol_file", "resource_config", "service_config", "systemd_user_unit", "usr_local_linker")
+
+#
+# minimal Consul
+#
+# this is only here because Nomad fails in the promise of running in an easy-to-deploy,
+# single-binary service.  Nomad can't actually do anything without consul providing state
+# information to nomad.  Nomad service-discovery barely works, but cannot be leveraged without
+# Consul taking the information and giving back in a format usable for templating and such.
+# Service discovery in this nomad-only config is without use beyond single-tier trivial
+# microservice.
+#
+# Consequently, don't bother trying to configure this.  It's just local-only, single-instance, just
+# to limp past the current shortcomings of Nomad pretending to act independently.
+info_file(
+    name = "info",
+    package_name = "consul",
+    arch_strings = ["denverton"],
+    beta = True,
+    description = "Consul offers service discovery, service mesh, identity-based authorization, L7 traffic management, and secure service-to-service encryption.",
+    displayname = "HashiCorp Consul",
+    maintainer = "//:chickenandpork",
+    os_max_ver = "",
+    os_min_ver = "7.0-1",  # correct-format=[^\d+(\.\d+){1,2}(-\d+){1,2}$]
+    package_version = "1.10.0-1",
+    support_conf_folder = True,
+
+    # silent_install="no"
+    # silent_uninstall="no"
+    # silent_upgrade="no"
+)
+
+# KNOWN ISSUES:
+# - systemd-user-unit doesn't copy the pkguser-<>.service.  using conf/systemd/... to workaround
+# - uninstall doesn't pre-stop the service
+# - still need a manual `sudo synosystemctl start pkg-user-consul.service` after install (need to track down the failure)
+
+INNER_SYSTEMD_SERVICE = "pkg-user-consul.service"
+
+service_config(
+    name = "consul_ui_port",
+    description = "Nomad UI",
+    dst_ports = "8500/tcp",
+    title = "Nomad UI",
+)
+
+protocol_file(
+    name = "protocol",
+    package_name = "consul",
+    service_config = [
+        ":consul_ui_port",
+    ],
+)
+
+data_share(
+    name = "datashare",
+    permissions = {
+        "consul": "rw",
+    },
+    sharename = "consul",
+)
+
+systemd_user_unit(
+    name = "systemd",
+    # TODO: make this create a DefaultInfo() return on the rule that is picked up in
+    # resource_config() to package the unit file
+    #unit = ":consul.service",
+)
+
+usr_local_linker(
+    name = "linker",
+    bin = ["bin/consul"],
+)
+
+resource_config(
+    name = "rez",
+    resources = [
+        ":datashare",
+        ":linker",
+        ":protocol",
+        ":systemd",
+    ],
+)
+
+privilege_config(
+    name = "priv",
+    groupname = "hashicorp",
+    username = "consul",
+)
+
+pkg_files(
+    name = "conf",
+    srcs = [
+        ":consul.service",
+        ":priv",
+        ":rez",
+    ],
+    attributes = pkg_attributes(
+        mode = "0444",
+    ),
+    prefix = "conf",
+    renames = {
+        "consul.service": "systemd/{}".format(INNER_SYSTEMD_SERVICE),
+    },
+    visibility = ["//visibility:public"],
+)
+
+# Create icon images
+images(
+    name = "icons",
+    src = "@nomad_icon//file",
+)
+
+APP_ICON = "package_icon_256.png"
+
+APP_ICON_IN_UI = "images/nomad_256.png"
+
+image(
+    name = "icon_256",
+    size = 256,
+    src = "@nomad_icon//file",
+    image = APP_ICON,
+)
+
+pkg_tar(
+    name = "package",
+    srcs = [
+        ":protocol",
+    ],
+    extension = "tgz",
+    remap_paths = {
+        "/consul.sc": "/conf/consul.sc",
+    },
+    deps = [
+        ":package-bin",
+    ],
+)
+
+pkg_tar(
+    name = "package-bin",
+    srcs = select({
+        "@platforms//cpu:arm64": ["@@rules_multitool++multitool+multitool.consul.linux_arm64//tools/consul:linux_arm64_executable"],
+        "@platforms//cpu:x86_64": ["@@rules_multitool++multitool+multitool.consul.linux_x86_64//tools/consul:linux_x86_64_executable"],
+        # intentionally no default to catch fenceposting
+    }),
+    extension = "tgz",
+    package_dir = "/bin",
+
+    # remap_paths are based on the full abspath of the resource, less the package_dir extension.
+    # This is why /bin/linux_x86_64_executable in the archive matches /linux_x86_64_executable
+    # and is rewritten /consul before the package_dir is applied.
+    remap_paths = {
+        # provide both, but the matches aren't mutually-exclusive because they don't need to be.
+        # If there is a clash, it suggests that the select() is broken
+        "/linux_x86_64_executable": "/consul",
+        "/linux_arm64_executable": "/consul",
+    },
+)
+
+# Like the other two, this is likely better as a basic local file
+write_file(
+    name = "sss",
+    out = "start-stop-status",
+    content = [
+        "#!/bin/bash",
+        "",
+        """case "$1" in""",
+        "    start)",
+        "            synosystemctl start {}".format(INNER_SYSTEMD_SERVICE),
+        "        ;;",
+        "    stop)",
+        "            synosystemctl stop {}".format(INNER_SYSTEMD_SERVICE),
+        "        ;;",
+        "    status)",
+        "            synosystemctl get-active-status {}".format(INNER_SYSTEMD_SERVICE),
+        "        ;;",
+        "    log)",
+        """        echo "" """,
+        "        ;;",
+        "    preflight)",
+        """            # not reachable via "sudo systemctl preflight consul""",
+        """            # only via "sudo /var/packages/consul/scripts/start-stop-status preflight""",
+        "            ( set -x  # FIXME ",
+        "            ls -al /usr/local/lib/systemd/system/pkg-user-consul.service",
+        "            ls -al /usr/local/lib/systemd/system/pkgctl-consul.service",
+        "            systemctl list-units | grep pkg-user-consul.service",
+        "            systemctl list-units | grep pkgctl-consul.service",
+        "            systemctl list-units | grep consul.slice",
+        "            )",
+        "        ;;",
+        "    *)",
+        """        echo "Usage: $0 {start|stop|status}" >&2""",
+        "        exit 1",
+        "        ;;",
+        "esac",
+    ],
+)
+
+NOMAD_REQUIRED_SCRIPTS = [f for f in SPK_REQUIRED_SCRIPTS if f not in ["start_stop_status"]]
+
+[copy_file(
+    name = "stub_{}".format(f),
+    src = "@rules_synology//synology:stub_script",
+    out = f,
+) for f in NOMAD_REQUIRED_SCRIPTS]
+
+pkg_files(
+    name = "scripts",
+    srcs = [":sss"] + [":stub_{}".format(f) for f in NOMAD_REQUIRED_SCRIPTS],
+    attributes = pkg_attributes(
+        mode = "0755",
+    ),
+    prefix = "scripts",
+)
+
+pkg_tar(
+    name = "spk",
+    srcs = [
+        ":conf",
+        ":icons",
+        ":info",
+        ":package",
+        ":scripts",
+        "@rules_pkg//pkg:verify_archive_test_main.py.tpl",
+    ],
+    extension = "tar",
+    package_file_name = "consulserver.spk",
+    visibility = ["//visibility:public"],
+)

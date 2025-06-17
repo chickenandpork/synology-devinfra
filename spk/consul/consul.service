@@ -1,0 +1,14 @@
+[Unit]
+Description=consul
+After=network-online.target
+
+[Service]
+Type=simple
+Slice=consul.slice
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStart=/var/packages/consul/target/bin/consul agent -dev -http-port=8500
+ExecStop=/bin/kill $MAINPID
+KillMode=process
+KillSignal=SIGINT
+Restart=on-failure
+RestartSec=5

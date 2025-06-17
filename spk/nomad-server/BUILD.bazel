@@ -73,9 +73,9 @@ protocol_file(
     package_name = "nomad",
     service_config = [
         ":nomad_ui_port",
-        #":nomadserver-rpc",
-        #":nomadserver-serftcp",
-        #":nomadserver-serfudp",
+        ":nomadserver-rpc",
+        ":nomadserver-serftcp",
+        ":nomadserver-serfudp",
     ],
 )
 
