@@ -50,6 +50,9 @@ client {
 acl {
   enabled = true
 }
+consul {
+  enabled = false
+}
 plugin "raw_exec" {
   config {
     enabled = true

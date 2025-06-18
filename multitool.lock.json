@@ -20,6 +20,26 @@
       }
     ]
   },
+  "consul": {
+    "binaries": [
+      {
+        "kind": "archive",
+        "url": "https://releases.hashicorp.com/consul/1.21.0/consul_1.21.0_linux_arm64.zip",
+        "file": "consul",
+        "sha256": "222b8877d11eefaae4ca4b3489e396a17a2f8a6d5115e55d341f384ae82bc603",
+        "os": "linux",
+        "cpu": "arm64"
+      },
+      {
+        "kind": "archive",
+        "url": "https://releases.hashicorp.com/consul/1.21.0/consul_1.21.0_linux_amd64.zip",
+        "file": "consul",
+        "sha256": "e916e30904eedfa7ee2e2a378b5e8a9a374f2f351e645aa4c0a03adc15dabaec",
+        "os": "linux",
+        "cpu": "x86_64"
+      }
+    ]
+  },
   "nomad": {
     "binaries": [
       {
