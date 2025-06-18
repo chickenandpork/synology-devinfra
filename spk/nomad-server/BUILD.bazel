@@ -8,16 +8,16 @@ info_file(
     name = "info",
     package_name = "nomad",
     arch_strings = ["denverton"],
+    beta = True,
     description = "An easy-to-use, flexible, and performant workload orchestrator",
-    displayname="HashiCorp Nomad",
+    displayname = "HashiCorp Nomad",
+    dsmappname = ["SYNO.SDS.Nomad"],
+    dsmuidir = "ui",
     maintainer = "//:chickenandpork",
+    os_max_ver = "",
     os_min_ver = "7.0-1",  # correct-format=[^\d+(\.\d+){1,2}(-\d+){1,2}$]
     package_version = "1.10.0-1",
-    support_conf_folder=True,
-    dsmuidir="ui",
-    dsmappname=["SYNO.SDS.Nomad"],
-    os_max_ver="",
-    beta = True,
+    support_conf_folder = True,
 
     # silent_install="no"
     # silent_uninstall="no"
@@ -40,10 +40,33 @@ info_file(
 
 INNER_SYSTEMD_SERVICE = "pkg-user-nomad.service"
 
-service_config( name="nomad_ui_port", description="Nomad UI", dst_ports = "4646/tcp", title = "Nomad UI")
-service_config( name="nomadserver-rpc", description="nomadserver-RPC (tcp)", dst_ports = "4647/tcp", title = "Nomad Server RPC Port")
-service_config( name="nomadserver-serftcp", description="nomadserver-Serf (tcp)", dst_ports = "4648/tcp", title = "Nomad Server Serf Port")
-service_config( name="nomadserver-serfudp", description="nomadserver-Serf (udp)", dst_ports = "4648/udp", title = "Nomad Server Serf Port")
+service_config(
+    name = "nomad_ui_port",
+    description = "Nomad UI",
+    dst_ports = "4646/tcp",
+    title = "Nomad UI",
+)
+
+service_config(
+    name = "nomadserver-rpc",
+    description = "nomadserver-RPC (tcp)",
+    dst_ports = "4647/tcp",
+    title = "Nomad Server RPC Port",
+)
+
+service_config(
+    name = "nomadserver-serftcp",
+    description = "nomadserver-Serf (tcp)",
+    dst_ports = "4648/tcp",
+    title = "Nomad Server Serf Port",
+)
+
+service_config(
+    name = "nomadserver-serfudp",
+    description = "nomadserver-Serf (udp)",
+    dst_ports = "4648/udp",
+    title = "Nomad Server Serf Port",
+)
 
 protocol_file(
     name = "protocol",
@@ -57,11 +80,11 @@ protocol_file(
 )
 
 data_share(
-  name = "datashare",
-  sharename = "nomad",
-  permissions = {
-    "nomad": "rw",
-  },
+    name = "datashare",
+    permissions = {
+        "nomad": "rw",
+    },
+    sharename = "nomad",
 )
 
 systemd_user_unit(
@@ -73,12 +96,17 @@ systemd_user_unit(
 
 usr_local_linker(
     name = "linker",
-    bin = [ "bin/nomad" ],
+    bin = ["bin/nomad"],
 )
 
 resource_config(
     name = "rez",
-    resources = [":datashare", ":linker", ":protocol", ":systemd"],
+    resources = [
+        ":datashare",
+        ":linker",
+        ":protocol",
+        ":systemd",
+    ],
 )
 
 privilege_config(
@@ -125,12 +153,14 @@ images(
 )
 
 APP_ICON = "package_icon_256.png"
+
 APP_ICON_IN_UI = "images/nomad_256.png"
+
 image(
     name = "icon_256",
-    image = APP_ICON,
-    src = "@nomad_icon//file",
     size = 256,
+    src = "@nomad_icon//file",
+    image = APP_ICON,
 )
 
 pkg_tar(
@@ -141,25 +171,25 @@ pkg_tar(
         ":genstart",
         "example-nomad-client-config",
     ],
-    deps = [
-        ":package-bin",
-        ":package-etc",
-        ":package-ui",
-    ],
     extension = "tgz",
     #package_dir = "/conf",
     remap_paths = {
         "/nomad.sc": "/conf/nomad.sc",
     },
+    deps = [
+        ":package-bin",
+        ":package-etc",
+        ":package-ui",
+    ],
 )
 
 pkg_tar(
     name = "package-bin",
     srcs = select({
-        "@platforms//cpu:arm64": [ "@@rules_multitool++multitool+multitool.nomad.linux_arm64//tools/nomad:linux_arm64_executable" ],
-        "@platforms//cpu:x86_64": [ "@@rules_multitool++multitool+multitool.nomad.linux_x86_64//tools/nomad:linux_x86_64_executable" ],
-	# intentionally no default to catch fenceposting
-    }) + [ "LICENSE-MariaDB-Hashicorp.txt" ],
+        "@platforms//cpu:arm64": ["@@rules_multitool++multitool+multitool.nomad.linux_arm64//tools/nomad:linux_arm64_executable"],
+        "@platforms//cpu:x86_64": ["@@rules_multitool++multitool+multitool.nomad.linux_x86_64//tools/nomad:linux_x86_64_executable"],
+        # intentionally no default to catch fenceposting
+    }) + ["LICENSE-MariaDB-Hashicorp.txt"],
     extension = "tgz",
     package_dir = "/bin",
 
@@ -176,58 +206,58 @@ pkg_tar(
 
 pkg_tar(
     name = "package-etc",
-    srcs = [ "nomad-avahi.service" ],
+    srcs = ["nomad-avahi.service"],
     extension = "tgz",
     package_dir = "/etc",
 )
 
 # Likely better as a basic local file
 write_file(
-  name = "genstart",
-  out = "start.sh",
-  content = [
-    "#!/bin/sh",
-    "",
-    """/var/packages/{}/target/bin/nomad agent -config "/var/packages/{}/shares/{}/etc/nomad.d/nomad.hcl" -config "/var/packages/{}/shares/{}/etc/nomad.d/" """.format(
-        "nomad",  # packagename
-        "nomad",  # packagename
-        "nomad",  # sharename
-        "nomad",  # packagename
-        "nomad",  # sharename
-    ),
-    "",
-  ],
+    name = "genstart",
+    out = "start.sh",
+    content = [
+        "#!/bin/sh",
+        "",
+        """/var/packages/{}/target/bin/nomad agent -config "/var/packages/{}/shares/{}/etc/nomad.d/nomad.hcl" -config "/var/packages/{}/shares/{}/etc/nomad.d/" """.format(
+            "nomad",  # packagename
+            "nomad",  # packagename
+            "nomad",  # sharename
+            "nomad",  # packagename
+            "nomad",  # sharename
+        ),
+        "",
+    ],
 )
 
 # Likely better as a basic local file
 write_file(
-  name = "ui-config",
-  out = "config",
-  content = [
-    "{",
+    name = "ui-config",
+    out = "config",
+    content = [
+        "{",
         '".url": {',
-            '"SYNO.SDS.Nomad": {',
-                '"title": "Nomad UI",',
-                '"desc": "Nomad UI",',
-                '"icon": "{}",'.format(APP_ICON_IN_UI),
-                '"type": "url",',
-                '"url": "@NOMAD_WEB_UI_URL@"',
-            "}",
+        '"SYNO.SDS.Nomad": {',
+        '"title": "Nomad UI",',
+        '"desc": "Nomad UI",',
+        '"icon": "{}",'.format(APP_ICON_IN_UI),
+        '"type": "url",',
+        '"url": "@NOMAD_WEB_UI_URL@"',
         "}",
-    "}",
-  ],
+        "}",
+        "}",
+    ],
 )
 
 pkg_tar(
     name = "package-ui",
     srcs = [
-      ":icon_256",
-      ":ui-config",
+        ":icon_256",
+        ":ui-config",
     ],
     extension = "tgz",
     package_dir = "/ui",
     remap_paths = {
-      "/{}".format(APP_ICON): "/{}".format(APP_ICON_IN_UI),
+        "/{}".format(APP_ICON): "/{}".format(APP_ICON_IN_UI),
     },
 )
 
@@ -242,7 +272,6 @@ write_file(
         "#!/bin/sh",
         "",
         """SYNOLOGY_IP=$(ip route get "$(ip route show 0.0.0.0/0 | grep -oP 'via \\K\\S+')" | grep -oP 'src \\K\\S+'|sed -e 's/src //g')""",
-
         "",
         """tee "$SYNOPKG_TEMP_LOGFILE" <<EOF""",
         "[",
@@ -272,7 +301,7 @@ write_file(
 pkg_tar(
     name = "wizard_uifiles",
     srcs = [
-      ":install_uifile_script",
+        ":install_uifile_script",
     ],
     extension = "tgz",
     package_dir = "/WIZARD_UIFILES",
@@ -324,7 +353,12 @@ write_file(
     ],
 )
 
-NOMAD_REQUIRED_SCRIPTS = [ f for f in SPK_REQUIRED_SCRIPTS if f not in [ "postinst", "postuninst", "preuninst", "start_stop_status" ]]
+NOMAD_REQUIRED_SCRIPTS = [f for f in SPK_REQUIRED_SCRIPTS if f not in [
+    "postinst",
+    "postuninst",
+    "preuninst",
+    "start_stop_status",
+]]
 
 [copy_file(
     name = "stub_{}".format(f),
@@ -334,7 +368,11 @@ NOMAD_REQUIRED_SCRIPTS = [ f for f in SPK_REQUIRED_SCRIPTS if f not in [ "postin
 
 pkg_files(
     name = "scripts",
-    srcs = [":sss", ":postinst", ":postuninst" ] + [":stub_{}".format(f) for f in NOMAD_REQUIRED_SCRIPTS],
+    srcs = [
+        ":postinst",
+        ":postuninst",
+        ":sss",
+    ] + [":stub_{}".format(f) for f in NOMAD_REQUIRED_SCRIPTS],
     attributes = pkg_attributes(
         mode = "0755",
     ),
@@ -352,13 +390,11 @@ pkg_tar(
         ":scripts",
         "@rules_pkg//pkg:verify_archive_test_main.py.tpl",
     ],
+    extension = "tar",
+    package_file_name = "nomadserver.spk",
+    visibility = ["//visibility:public"],
     deps = [
         #":scripts",
         ":wizard_uifiles",
     ],
-    extension = "tar",
-    package_file_name = "nomadserver.spk",
-    visibility = ["//visibility:public"],
 )
-
-

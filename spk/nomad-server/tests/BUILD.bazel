@@ -4,7 +4,6 @@ load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_pkg//pkg:verify_archive.bzl", "verify_archive_test")
 load("@rules_synology//:defs.bzl", "spk_component")
 
-
 copy_file(
     name = "spk",
     src = "//spk/nomad-server:spk",
@@ -19,4 +18,3 @@ verify_archive_test(
     ],
     target = ":spk",
 )
-
