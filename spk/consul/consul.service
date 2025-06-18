@@ -6,7 +6,7 @@ After=network-online.target
 Type=simple
 Slice=consul.slice
 ExecReload=/bin/kill -HUP $MAINPID
-ExecStart=/var/packages/consul/target/bin/consul agent -dev -http-port=8500
+ExecStart=/var/packages/consul/target/bin/consul agent -dev -http-port=8500 -client=0.0.0.0
 ExecStop=/bin/kill $MAINPID
 KillMode=process
 KillSignal=SIGINT
