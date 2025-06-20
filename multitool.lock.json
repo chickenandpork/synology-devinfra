@@ -26,7 +26,7 @@
         "kind": "archive",
         "url": "https://releases.hashicorp.com/consul/1.21.0/consul_1.21.0_linux_arm64.zip",
         "file": "consul",
-        "sha256": "222b8877d11eefaae4ca4b3489e396a17a2f8a6d5115e55d341f384ae82bc603",
+        "sha256": "59d04f948d4b04a1d836e69a441e4c3ffb74b41f710329c9ba0dc99392b6f2d5",
         "os": "linux",
         "cpu": "arm64"
       },
@@ -46,7 +46,7 @@
         "kind": "archive",
         "url": "https://releases.hashicorp.com/nomad/1.10.0/nomad_1.10.0_linux_arm64.zip",
         "file": "nomad",
-        "sha256": "111b8877d11eefaae4ca4b3489e396a17a2f8a6d5115e55d341f384ae82bc603",
+        "sha256": "b542daaeaf9ddd9f109bbf1a4ec1c05d6b6f2d3645c0ebe21786dec8b447e7d6",
         "os": "linux",
         "cpu": "arm64"
       },
