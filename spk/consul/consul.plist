@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>application.com.hashicorp.consul</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/usr/local/bin/consul</string>
+      <string>agent</string>
+      <string>-dev</string>
+      <string>-http-port=8500</string>
+      <string>-bind</string>
+      <string>0.0.0.0</string>
+      <!-- <string>'{{ GetPrivateInterfaces | exclude "type" "ipv6" | join "address" " " }}'</string> -->
+      <string>-client</string>
+      <string>10.0.1.227</string>
+      <string>-retry-join</string>
+      <string>10.0.0.9</string>
+      <!-- <string>-config</string>
+      <string>/etc/consul.d/consul.hcl</string>
+      <string>-log-file=/var/log/</string> -->
+    </array>
+    <key>WatchPaths</key>
+    <array>
+      <string>/usr/local/bin/consul</string>
+      <string>/etc/consul.d/</string>
+    </array>
+    <key>KeepAlive</key>
+    <true/>
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- <key>WorkingDirectory</key>
+    <string>/etc/consul.d/</string> -->
+    <key>StandardOutPath</key>
+    <string>/var/log/consul.log.stdout</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/consul.log.stderr</string>
+  </dict>
+</plist>
+
+
+
