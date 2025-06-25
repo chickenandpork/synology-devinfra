@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>application.com.hashicorp.nomad-client</string>
+    <key>ProgramArguments</key>
+    <array>
+      <string>/usr/local/bin/nomad</string>
+      <string>agent</string>
+      <string>-config</string>
+      <string>/etc/nomad.d/nomad.hcl</string>
+    </array>
+    <key>WatchPaths</key>
+    <array>
+      <string>/usr/local/bin/nomad</string>
+      <string>/etc/nomad.d/</string>
+    </array>
+    <key>KeepAlive</key>
+    <true/>    
+    <key>RunAtLoad</key>
+    <true/>    
+    <key>WorkingDirectory</key>
+    <string>/etc/nomad.d/</string>
+    <key>StandardOutPath</key>
+    <string>/var/log/nomad.log.stdout</string>
+    <key>StandardErrorPath</key>
+    <string>/var/log/nomad.log.stderr</string>
+  </dict>
+</plist>
