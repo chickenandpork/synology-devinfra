@@ -34,7 +34,7 @@ jobs:
           # Share repository cache between workflows.
           repository-cache: true
       -
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         # action runners have bazelisk: - uses: bazelbuild/setup-bazelisk@v2
         # https://github.com/bazelbuild/bazel/issues/11062
       -
@@ -67,7 +67,7 @@ jobs:
           release-type: bazel
       - name: Clone Repo
         if: ${{ steps.release.outputs.release_created }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Download artifacts
         id: download
         if: ${{ steps.release.outputs.release_created }}
