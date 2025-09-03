@@ -12,7 +12,7 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_pkg", version = "1.1.0")
 bazel_dep(name = "rules_synology", version = "0.2.3")
 
-# local_path_override(module_name = "rules_synology", path = "../rules_synology")
+local_path_override(module_name = "rules_synology", path = "../rules_synology")
 
 http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 
@@ -43,6 +43,29 @@ http_file(
     ],
 )
 
+http_file(
+    name = "talos_icon",
+    sha256 = "c5214bfd4e3ea4d0679eb217b327b9355927f446e8fe890a4610a5c8775af3a3",
+    urls = [
+        "https://www.talos.dev/images/logo.svg",
+    ],
+)
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name="dnsmasq",
+    build_file = "//spk/talospxe:BUILD.dnsmasq.bazel",
+    sha256 = "f622682848b33677adb2b6ad08264618a2ae0a01da486a93fd8cd91186b3d153",
+    strip_prefix = "dnsmasq-2.91",
+    urls = [
+        "https://thekelleys.org.uk/dnsmasq/dnsmasq-2.91.tar.xz",
+    ],
+)
+
+
+
+
 load_json_file = use_repo_rule("//json:load_json_file.bzl", "load_json_file")
 
 load_json_file(
@@ -54,3 +77,7 @@ load_json_file(
 multitool = use_extension("@rules_multitool//multitool:extension.bzl", "multitool")
 multitool.hub(lockfile = "//:multitool.lock.json")
 use_repo(multitool, "multitool")
+
+# register toolchains by wildcard :) (thanks, github/cameron-martin)
+register_toolchains("@rules_synology//toolchains:all")
+

@@ -1,0 +1,18 @@
+#!/bin/sh
+set -e
+
+exec 2>>/tmp/postinst.allanc
+set -x
+
+export TALOSPXE_ASSETS="/var/packages/$SYNOPKG_PKGNAME/share/assets"
+export TALOSPXE_CONFIG="/var/packages/$SYNOPKG_PKGNAME/share/config"
+export TALOSPXE_DHCPD="/var/packages/$SYNOPKG_PKGNAME/share/dnsmasq.d"
+
+mkdir -p "${TALOSPXE_ASSETS}"
+mkdir -p "${TALOSPXE_CONFIG}"
+mkdir -p "${TALOSPXE_DHCPD}"
+
+id  >> /tmp/postinst.allanc
+#/var/packages/$SYNOPKG_PKGNAME/scripts/start-stop-status start
+
+exit 0
