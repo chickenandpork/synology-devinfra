@@ -2,8 +2,8 @@
   "bazel-remote-cache": {
     "renovate_datasource": "docker",
     "renovate_depname": "buchgr/bazel-remote-cache",
-    "sha256": "sha256:acfd752ef4a4e2674b07bb6d31536ac9649772f1e9e9653f0f3d4cc1c6b7d9d6",
-    "version": "v2.6.0"
+    "sha256": "sha256:d9b104d02bea731f5a8ce6d3c518f814953ef54c2e0218744ce7643ff9d85ca8",
+    "version": "v2.6.1"
   },
   "mbs": {
     "renovate_datasource": "docker",
