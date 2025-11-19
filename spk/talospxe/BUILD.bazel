@@ -7,6 +7,7 @@ load("@rules_pkg//pkg/private/tar:tar.bzl", "SUPPORTED_TAR_COMPRESSIONS", "pkg_t
 load(
     "@rules_synology//:defs.bzl",
     "SPK_REQUIRED_SCRIPTS",
+    "simple_start_stop_script",
     "docker_compose",
     "docker_project",
     "images",
@@ -17,65 +18,52 @@ load(
     "resource_config",
     "service_config",
 )
-load("//json:de_vanity_ubuntu_versions.bzl", fix_version = "convert_ubuntu_vanity_version_to_semver")
-
-PGCON = "postgres://maas:maas@192.168.0.159:5432/maasdb"
-
-MAAS_DOMAIN = "chickenandporn.com"
-
-MAAS_CONTAINER_NAME = "cmaas"
-
-MAAS_PROFILE = "admin"
-
-MAAS_PASS = "admin"
-
-MAAS_EMAIL = "maas-admin@{}".format(MAAS_DOMAIN)
-
-MAAS_SSH_IMPORT_ID = "gh:chickenandpork"
-
-MAAS_URL = "http://localhost:5240/MAAS"
 
 # docker_compose represents a name of a docker-compose.yaml file, of which one or more is inside a "docker-project" entry
 docker_compose(
-    name = "cmaas_compose",
+    name = "talospxe_compose",
     compose = ":dockercompose",
-    path = "cmaas",
-    project_name = "cmaas",
+    path = "talospxe",
+    project_name = "talospxe",
 )
 
 docker_project(
-    name = "cmaas_project",
-    projects = [":cmaas_compose"],
+    name = "talospxe_project",
+    projects = [":talospxe_compose"],
 )
 
-# check via `bazel query //spk/cmaas:info --output=build`
+NON_SEMANTIC_VERSION=version_json["netbootxyz"]["version"]
+VERSION="1.0.{}".format(NON_SEMANTIC_VERSION.strip("abcdefghijklmnopqrstuvwxyz-"))
+#VERSION="1.0.{}".format(version_json["netbootxyz"]["version"].strip("abcdefghijklmnopqrstuvwxyz-"))
+RELEASE="1"
+
+# check via `bazel query //spk/talospxe:info --output=build`
 info_file(
     name = "info",
-    package_name = "cmaas",
+    package_name = "talospxe",
     #arch_strings = ["noarch"],
-    description = "Containerized-Maas (Craig Bender)",
+    description = "Talos deployed by PXE netboot (Lukes Lab)",
     maintainer = "//:chickenandpork",
     os_min_ver = "7.0-1",  # correct-format=[^\d+(\.\d+){1,2}(-\d+){1,2}$]
-    package_version = "{}-1".format(fix_version(version_json["mbs"]["version"])),
+    package_version = "{}-{}".format(VERSION, RELEASE),
 )
 
 privilege_config(
     name = "priv",
-    username = "sc-cmaas",
+    username = "sc-talospxe",
     # run_as_root isn't working: Synology seems to throw a 313 or 319 error whenever I have any valid binaries in the run-as-root.  Need to optimize it over time.
     #run_as_root= [ "postinst", "preuninst"],
 )
 
 resource_config(
     name = "rez",
-    resources = [":cmaas_project"],
+    resources = [":talospxe_project"],
 )
 
-#https://images.squarespace-cdn.com/content/v1/500a3673c4aa9263a8955641/1551919834344-GX7V5SG9ZDQ1E7XU6JKV/maas-logo.png
-# fallback: https://dashboard.snapcraft.io/site_media/appmedia/2019/10/maas-snap.png
+#https://www.talos.dev/images/logo.svg
 images(
     name = "icons",
-    src = "@maas_icon//file",
+    src = "@talos_icon//file",
 )
 
 pkg_files(
@@ -91,45 +79,42 @@ pkg_files(
     visibility = ["//visibility:public"],
 )
 
+DNSMASQ_PREFIX="dnsmasq.d"
+pkg_files(
+    name = "dnsmasq-conf",
+    srcs = [
+        ":dnsmasq.d.conf",
+    ],
+    attributes = pkg_attributes(
+        mode = "0666",
+    ),
+    prefix = DNSMASQ_PREFIX,
+    visibility = ["//visibility:public"],
+)
+
 pkg_tar(
     name = "package",
-    srcs = [],
+    srcs = [":dnsmasq-conf"],
     extension = "tgz",
     package_dir = "/",
-    deps = [":cmaas_project"],
+    deps = [":talospxe_project"],
 )
 
 [copy_file(
     name = "stub_{}".format(f),
     src = "@rules_synology//synology:stub_script",
     out = f,
-) for f in SPK_REQUIRED_SCRIPTS if f not in []]
+) for f in SPK_REQUIRED_SCRIPTS if f not in [ "postinst"]]
 
-write_file(
-    name = "insmod_sss_script",
-    out = "start-stop-status",
-    content = [
-        "#!/bin/sh",
-        "",
-        """case "$1" in""",
-        """    start)""",
-        """        ;;""",
-        """    stop)""",
-        """        ;;""",
-        """    status)""",
-        """        ;;""",
-        """esac""",
-        "",
-        "exit 0",
-        "",  # force a newline after the script to simplify diff checks
-    ],
-    is_executable = True,
-    #visibility = ["//visibility:public"],
+
+simple_start_stop_script(
+    name = "sss",
+    deps = [ ":info", ":talospxe_project" ],
 )
 
 pkg_files(
     name = "scripts",
-    srcs = [":insmod_sss_script"] + [":stub_{}".format(f) for f in SPK_REQUIRED_SCRIPTS if f not in []],
+    srcs = [":postinst", ":sss"] + [":stub_{}".format(f) for f in ["preinst", "preuninst", "postuninst", "preupgrade", "postupgrade"]],
     attributes = pkg_attributes(
         mode = "0755",
     ),
@@ -137,7 +122,7 @@ pkg_files(
 )
 
 pkg_tar(
-    name = "cmaas",
+    name = "talospxe",
     srcs = [
         ":conf",
         ":icons",
@@ -146,7 +131,7 @@ pkg_tar(
         ":scripts",
     ],
     extension = "tar",
-    package_file_name = "{}.spk".format("cmaas"),
+    package_file_name = "{}.spk".format("talospxe"),
     visibility = ["//visibility:public"],
 )
 
@@ -155,14 +140,18 @@ expand_template_rule(
     name = "dockercompose",
     out = "docker-compose.yaml",
     substitutions = {
-        "PGCON": PGCON,
-        "MAAS_DOMAIN": MAAS_DOMAIN,
-        "MAAS_CONTAINER_NAME": MAAS_CONTAINER_NAME,
-        "MAAS_PROFILE": MAAS_PROFILE,
-        "MAAS_PASS": MAAS_PASS,
-        "MAAS_EMAIL": MAAS_EMAIL,
-        "MAAS_SSH_IMPORT_ID": MAAS_SSH_IMPORT_ID,
-        "MAAS_URL": MAAS_URL,
+        "{DNSMASQ_CONFIG}": "/var/packages/talospxe/target/{}".format(DNSMASQ_PREFIX),
+        "{EXT_DHCP_PORT}": "192.168.4.4:69",
+        "{EXT_NGINX_PORT}": "192.168.4.4:8128",
+        "{EXT_WEB_APP_PORT}": "3000",  # all interfaces: admin port
+        "{IMAGE}": "ghcr.io/netbootxyz/netbootxyz:{}".format(NON_SEMANTIC_VERSION),
+        "{MENU_VERSION}": "2.0.88",
+        "{NGINX_PORT}": "80",
+	"{NON_SEMANTIC_VERSION}": NON_SEMANTIC_VERSION,
+        "{PACKAGE_HOME}": "/var/packages/talospxe/share",
+        "{WEB_APP_PORT}": "3000",
     },
     template = ":docker-compose.tpl",
 )
+
+alias (name="dnsmasq", actual = "@dnsmasq//:dnsmasq")

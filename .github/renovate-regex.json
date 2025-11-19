@@ -10,5 +10,11 @@
     "renovate_depname": "craigbender/cmaas",
     "sha256": "sha256:4668f40525782b66b0ab1e747983a7df8918aaff7c933c51401460afba67e9f7",
     "version": "jammy-3.3"
+  },
+  "netbootxyz": {
+    "renovate_datasource": "github-releases",
+    "renovate_depname": "netbootxyz/netbootxyz",
+    "sha256": "sha256:1118f40525782b66b0ab1e747983a7df8918aaff7c933c51401460afba67e9f7",
+    "version": "pr-106"
   }
 }
