@@ -43,7 +43,7 @@ jobs:
         run: bazel test //... --test_output=errors --test_summary=detailed
       -
         name: Upload Build Artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           if-no-files-found: error
           path: ${{ github.workspace }}/bazel-bin/spk/cmaas/cmaas.spk
@@ -71,7 +71,7 @@ jobs:
       - name: Download artifacts
         id: download
         if: ${{ steps.release.outputs.release_created }}
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v7
         with:
           merge-multiple: true
       - name: Upload Release Artifacts
