@@ -1,0 +1,29 @@
+diff -ur tar/extract/rule.bzl tar/extract/rule.bzl
+--- tar/extract/rule.bzl 2025-03-18 02:43:25
++++ tar/extract/rule.bzl        2025-10-15 00:09:09
+@@ -22,7 +22,7 @@
+     "src": attr.label(
+         doc = "An archive to extract decleared files from.",
+         mandatory = True,
+-        allow_single_file = [".tar", ".tar.gz", ".tar.bz2", ".tar.zst", "tar.xz"],
++        allow_single_file = [".tar", ".tar.gz", ".tgz", ".tar.bz2", "tbz", ".tar.zst", ".tzst", "tar.xz", "txz"],
+     ),
+     "outs": attr.output_list(
+         doc = "Paths within the archive to extract.",
+diff -ur tar/pipe/subrule.bzl tar/pipe/subrule.bzl
+--- tar/pipe/subrule.bzl 2025-03-18 02:43:25
++++ tar/pipe/subrule.bzl        2025-10-15 00:17:47
+@@ -32,9 +32,13 @@
+ 
+ MAP = {
+     "tar": None,
++    "tgz": "@rules_gzip//gzip/toolchain/gzip:type",
+     "gz": "@rules_gzip//gzip/toolchain/gzip:type",
++    "tbz": "@rules_bzip2//bzip2/toolchain/bzip2:type",
+     "bz2": "@rules_bzip2//bzip2/toolchain/bzip2:type",
++    "txz": "@rules_xz//xz/toolchain/xz:type",
+     "xz": "@rules_xz//xz/toolchain/xz:type",
++    "tzst": "@rules_zstd//zstd/toolchain/zstd:type",
+     "zst": "@rules_zstd//zstd/toolchain/zstd:type",
+ }
+

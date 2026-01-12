@@ -1,3 +1,4 @@
+load("@rules_python//python:pip.bzl", "compile_pip_requirements")
 load("@rules_synology//:defs.bzl", "maintainer")
 
 maintainer(
@@ -5,4 +6,11 @@ maintainer(
     maintainer_name = "Allan Clark",
     maintainer_url = "http://github.com/chickenandpork",
     visibility = ["//visibility:public"],
+)
+
+# bazel run //:requirements.update
+compile_pip_requirements(
+    name = "requirements",
+    src = "requirements.in",
+    requirements_txt = "requirements_lock.txt",
 )

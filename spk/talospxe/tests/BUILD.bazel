@@ -1,0 +1,78 @@
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_pkg//pkg:verify_archive.bzl", "verify_archive_test")
+load("@rules_synology//:defs.bzl", "spk_component")
+
+copy_file(
+    name = "spk",
+    src = "//spk/talospxe",
+    out = "spk.tar",
+)
+
+verify_archive_test(
+    name = "spk_container_contains_user_unit",
+    max_size = 30,
+    must_contain = [
+        "conf/systemd/pkg-user-bsdp-dnsmasq.service",
+        "conf/systemd/pkg-user-bsdp-server.service",
+        "scripts/postinst",
+        "scripts/postuninst",
+        "scripts/postupgrade",
+        "scripts/preinst",
+        "scripts/preuninst",
+        "scripts/preupgrade",
+        "scripts/start-stop-status",
+    ],
+    target = ":spk",
+)
+
+genrule(
+    name = "extract_package",
+    srcs = [ ":spk" ],
+    outs = ["package.tgz"],
+    cmd = "tar -xOf $< package.tgz > $@",
+    message = "Extract package.tgz",
+)
+
+verify_archive_test(
+    name = "package_contains_correct_binary",
+    max_size = 2500,
+    must_contain = [
+        "bin/dnsmasq",
+    ],
+    target = ":extract_package",
+)
+
+genrule(
+    name = "extract_dnsmasq",
+    srcs = [ ":extract_package" ],
+    outs = ["dnsmasq"],
+    cmd = "tar -xOf $< bin/dnsmasq > $@",
+    message = "Extract dnsmasq",
+)
+
+genrule(
+    name = "type_of_dnsmasq",
+    srcs = [ ":extract_dnsmasq" ],
+    outs = ["type-of-dnsmasq"],
+    cmd = "cat $$(realpath $<) | file - > $@",
+)
+
+
+write_file(
+    name = "type_dnsmasq_expected",
+    out = "type-dnsmasq-expected",
+    content = [
+	"/dev/stdin: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, for GNU/Linux 3.2.0, with debug_info, not stripped",
+	"",  # newline
+    ],
+)
+
+diff_test(
+    name = "diff_type_of_dnsmasq_test",
+    size = "small",
+    file1 = ":type_dnsmasq_expected",
+    file2 = ":type_of_dnsmasq",
+)
+
