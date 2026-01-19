@@ -1,5 +1,5 @@
 module(
-    name = "synology-minecraft-bedrock",
+    name = "synology-devinfra",
     version = "1.0",
 )
 
@@ -7,12 +7,59 @@ bazel_dep(name = "buildifier_prebuilt", version = "8.2.1.1", dev_dependency = Tr
 
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
-bazel_dep(name = "rules_multitool", version = "1.11.1")
 bazel_dep(name = "platforms", version = "1.0.0")
+#bazel_dep(name = "pydhcplib3", version = "0.0.0")
+bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
+bazel_dep(name = "rules_multitool", version = "1.11.1")
 bazel_dep(name = "rules_pkg", version = "1.2.0")
+bazel_dep(name = "rules_python", version = "1.7.0")  # see below: eclipse transient dep
 bazel_dep(name = "rules_synology", version = "0.2.3")
+#bazel_dep(name = "rules_tar", version = "1.0.1")
 
-# local_path_override(module_name = "rules_synology", path = "../rules_synology")
+# Synology-7.2 runs on Python-3.8.15
+VER_PYTHON = "3.8"
+EXT_PYTHON = VER_PYTHON.replace(".","_")
+
+pip = use_extension("@rules_python//python/extensions:pip.bzl", "pip")
+pip.parse(
+    hub_name = "pypi",
+    python_version = VER_PYTHON,
+    requirements_lock = "//:requirements_lock.txt",
+)
+use_repo(pip, "pypi")
+
+# Need to eclipse the transient dependency on rules_python so that we can declare that building the
+# SPK as root is OK, so that we can:
+#     docker run \
+#        --platform 'linux/x86_64' \
+#        --rm -it \
+#        -v ~/src/rules_synology:/rules_synology \
+#        -v ~/src/synology-devinfra:/synology-devinfra \
+#        -w /synology-devinfra/ \
+#        gcr.io/bazel-public/ubuntu2204:latest \
+#     bazel build spk/talospxe/...
+
+python = use_extension("@rules_python//python/extensions:python.bzl", "python")
+python.toolchain(
+    configure_coverage_tool = False,
+    ignore_root_user_error = True,  # ignore user=root here
+    is_default = True,
+    python_version = VER_PYTHON,
+)
+use_repo(python, "python_{}".format(EXT_PYTHON))
+
+
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "pydhcplib3",
+    sha256 = "da82a3bc45e7df9afa3e71d8b5522436a7206c6f8e90405a3825fee5262f210f",
+    strip_prefix = "pydhcplib3-0.7.1",
+    urls = [
+        "https://github.com/chickenandpork/pydhcplib3/releases/download/v0.7.1/pydhcplib3-0.7.1.tar.xz",
+    ],
+)
 
 http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 
@@ -22,6 +69,24 @@ http_file(
     sha256 = "17b0b844fd52deff5328df2ce05e12e6d754ebda75ba1065ee0aa2127f12dcab",
     urls = [
         "https://avatars.githubusercontent.com/u/1388179?s=1000&v=4",
+    ],
+)
+
+http_file(
+    name = "dnsmasq",
+    sha256 = "1071596e8e4ed85db5cd90c01a7ff1fe8fd6f10267bccb33763a1cc03d7de118",
+    downloaded_file_path = "dnsmasq",
+    urls = [
+        "https://github.com/chickenandpork/prebuilt-synology-dnsmasq/releases/download/v0.0.2/dnsmasq",
+    ],
+)
+
+http_file(
+    name = "grubx64efi",  # amd
+    downloaded_file_path = "grubx64.efi",
+    sha256 = "1fed156484eec73bee5a1776d09fd2bfa24b9ad5340105341a9e510f8bdd0bfd",
+    urls = [
+        "https://archive.ubuntu.com/ubuntu/dists/bionic/main/uefi/grub2-amd64/current/grubx64.efi",
     ],
 )
 
@@ -43,6 +108,49 @@ http_file(
     ],
 )
 
+http_file(
+    name = "talos_icon",
+    sha256 = "2ce46a4ae697a932bd6224446b5a810c107d8f7efa4141013a7be32ded754d88",
+    urls = [
+        "https://www.talos.dev/img/sidero-logo.svg",
+    ],
+)
+
+# https://factory.talos.dev/?arch=amd64&platform=metal&target=metal&version=1.11.2
+# - x siderolabs/lldpd
+# - x siderolabs/nut-client
+# - x siderolabs/thunderbolt
+#
+# Your image schematic ID is: 376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba
+SIDEROLABS_SCHEMATIC = "376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba"
+#
+# customization: {}
+# First Boot
+#
+# Here are the options for the initial boot of Talos Linux on a bare-metal machine or a generic virtual machine:
+#
+# ISO https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.2/metal-amd64.iso (ISO documentation)
+# Disk Image (raw) https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.2/metal-amd64.raw.zst
+# Disk Image (qcow2) https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.2/metal-amd64.qcow2
+# PXE boot (iPXE script) https://pxe.factory.talos.dev/pxe/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.2/metal-amd64
+# (PXE documentation)
+#
+# Extra Assets
+#
+# Kernel Image https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.2/kernel-amd64
+# Kernel Command Line https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.2/cmdline-metal-amd64
+# Initramfs Image https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.2/initramfs-amd64.xz
+# UKI https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.11.2/metal-amd64-uki.efi
+
+http_file(
+    name = "talosukiefi",  # amd
+    downloaded_file_path = "talos_uki.efi",
+    sha256 = "111d156484eec73bee5a1776d09fd2bfa24b9ad5340105341a9e510f8bdd0bfd",
+    urls = [
+        "https://factory.talos.dev/image/{}/v1.11.2/metal-amd64-uki.efi".format(SIDEROLABS_SCHEMATIC),
+    ],
+)
+
 load_json_file = use_repo_rule("//json:load_json_file.bzl", "load_json_file")
 
 load_json_file(
@@ -54,3 +162,6 @@ load_json_file(
 multitool = use_extension("@rules_multitool//multitool:extension.bzl", "multitool")
 multitool.hub(lockfile = "//:multitool.lock.json")
 use_repo(multitool, "multitool")
+
+# register toolchains by wildcard :) (thanks, github/cameron-martin)
+register_toolchains("@rules_synology//toolchains:all")

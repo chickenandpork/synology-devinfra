@@ -1,0 +1,320 @@
+load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template_rule")
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@local_renovate_regex//:json.bzl", "version_json")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
+load("@rules_pkg//pkg/private/tar:tar.bzl", "SUPPORTED_TAR_COMPRESSIONS", "pkg_tar")
+load(
+    "@rules_synology//:defs.bzl",
+    "SPK_REQUIRED_SCRIPTS",
+    "data_share",
+    "docker_compose",
+    "docker_project",
+    "images",
+    "info_file",
+    "maintainer",
+    "privilege_config",
+    "protocol_file",
+    "resource_config",
+    "service_config",
+    "systemd_user_unit",
+    #"simple_start_stop_script",
+)
+#load("@rules_tar//tar/extract:defs.bzl", "tar_extract")
+
+#
+# Boot Service Discovery Protocol Server: Apple's extra DHCP-Discover-based search for augmented
+# boot server
+#
+# I wish I didn't need to do this, but the bsdpserver was written for python2, the pydhcplib that
+# it needs all python2, and no one supports that anymore.  I need to bring that to modern age to be
+# able to see if it even works.  After trying docker containers and such, I an finding that the
+# UDP->docker-proxy->container isn't geting the DOCP Discover into the bsdpserver, so I need to run
+# at host level.
+#
+# Synology-7.2 runs on Python-3.8.15, so at least that's within the decade.
+
+
+# check via `bazel query //spk/talospxe:info --output=build`
+info_file(
+    name = "info",
+    package_name = "talospxe",  # package_name in info_file() and protocol_file() need to match
+    arch_strings = ["denverton"],
+    beta = True,
+    description = "Talos deployed by PXE netboot (Lukes Lab), including PXE for Apple HW via BSDP",
+    displayname = "Netboot Talos k8s",
+    maintainer = "//:chickenandpork",
+    os_min_ver = "7.0-1",  # correct-format=[^\d+(\.\d+){1,2}(-\d+){1,2}$]
+    package_version = "{}-{}".format("1.0.0", "1"),
+    support_conf_folder = True,
+
+    # silent_install="no"
+    # silent_uninstall="no"
+    # silent_upgrade="no"
+)
+
+service_config(
+    name = "talospxe_tftp",
+    description = "TFTP Port for dnsmasq",
+    dst_ports = "69/udp",
+    title = "dnsmasq TFTP Port",
+)
+
+service_config(
+    name = "talospxe_dhcp",
+    description = "DHCP Port for dnsmasq/BSDPServer",
+    dst_ports = "67/udp",
+    title = "BSDP DHCP Port",
+)
+
+protocol_file(
+    name = "protocol",
+    package_name = "talospxe",  # package_name in info_file() and protocol_file() need to match
+    service_config = [
+        ":talospxe_dhcp",
+        ":talospxe_tftp",
+    ],
+    # need to package this in a pkg_tar(prefix="conf",..) in the package.tgz causing ./conf/talospxe.sc to exist
+)
+
+data_share(
+  name = "datashare",
+  sharename = "talospxe",
+  permissions = {
+    "sc-talospxe": "rw",
+    # "otheruser": "ro",
+  },
+)
+
+systemd_user_unit(
+    name = "systemd_units",
+    # TODO: make this create a DefaultInfo() return on the rule that is picked up in
+    # resource_config() to package the unit file
+    #unit = ":talospxe.service",
+)
+
+resource_config(
+    name = "rez",
+    resources = [
+        ":datashare",
+        ":protocol",
+        ":systemd_units",
+    ],
+)
+
+privilege_config(
+    name = "priv",
+    username = "sc-talospxe",
+    # run_as_root isn't working: Synology seems to throw a 313 or 319 error whenever I have any valid binaries in the run-as-root.  Need to optimize it over time.
+    #run_as_root= [ "postinst", "preuninst"],
+)
+
+
+#https://www.talos.dev/images/logo.svg
+images(
+    name = "icons",
+    src = "@talos_icon//file",
+)
+
+DNSMASQ_PREFIX = "dnsmasq.d"
+
+# KNOWN ISSUES:
+# - systemd-user-unit doesn't copy the pkguser-<>.service.  using conf/systemd/... to workaround
+# - uninstall doesn't pre-stop the service
+# - still need a manual `sudo synosystemctl start pkg-user-bsdp-server.service` after install (need
+#   to track down the failure)
+
+pkg_files(
+    name = "conf",
+    srcs = [
+        ":priv",
+        ":rez",
+    ],
+    attributes = pkg_attributes(
+        mode = "0444",
+    ),
+    prefix = "conf",
+    visibility = ["//visibility:public"],
+)
+
+pkg_files(
+    name = "systemd",
+    srcs = [
+        ":pkg-user-bsdp-dnsmasq.service",
+        ":pkg-user-bsdp-server.service",
+    ],
+    attributes = pkg_attributes( mode = "0550"),
+    prefix = "conf/systemd",
+    visibility = ["//visibility:public"],
+)
+
+pkg_files(
+    name = "service-bin",
+    srcs = [
+	    "@dnsmasq//file:file",
+    ],
+    attributes = pkg_attributes(
+        mode = "0444",
+    ),
+    prefix = "bin",
+    visibility = ["//visibility:public"],
+)
+
+pkg_files(
+    name = "service-conf",
+    srcs = [
+        ":dnsmasq.conf",
+        # ":bsdpy.yaml",
+    ],
+    attributes = pkg_attributes(
+        mode = "0666",
+    ),
+    prefix = DNSMASQ_PREFIX,
+    visibility = ["//visibility:public"],
+)
+
+pkg_files(
+    name = "conf-in-package",
+    srcs = [
+        ":protocol",
+    ],
+    attributes = pkg_attributes(
+        mode = "0444",
+    ),
+    prefix = "conf",
+    visibility = ["//visibility:public"],
+)
+
+pkg_tar(
+    name = "package",
+    srcs = [
+        ":conf-in-package",
+	":service-bin",
+        ":service-conf",
+    ],
+    extension = "tgz",
+    package_dir = "/",
+    deps = [":package-bin-patched"],
+)
+
+py_binary(
+    name = "bsdpserver_py",
+    srcs = [
+        "bsdpserver.py",
+        "envdefault.py",
+    ],
+    main = "bsdpserver.py",
+    deps = ["@pydhcplib3//pydhcplib3"],
+)
+
+pkg_tar(
+    name = "package-bin",
+    srcs = [":bsdpserver_py"],
+    extension = "tgz",
+    include_runfiles = True,
+
+    # remap_paths are based on the full abspath of the resource, less the package_dir extension.
+    # This is why /bin/linux_x86_64_executable in the archive matches /linux_x86_64_executable
+    # and is rewritten /bsdpserver before the package_dir is applied.
+    remap_paths = {
+        # provide both, but the matches aren't mutually-exclusive because they don't need to be.
+        # If there is a clash, it suggests that the select() is broken
+        "/linux_x86_64_executable": "/bsdpserver",
+        "/linux_arm64_executable": "/bsdpserver",
+    },
+)
+
+#########
+# hack specific to this package: replace the PYTHON_BINARY:
+# 1. extract the file from the `package-bin` archive
+# 2. patch it with `sed` command
+# 3. create an archive of that patched script, name remapped to original filename, layering over `package-bin` as dep
+# 4. include in deps for "package" tar archive, replacing original `package-bin`
+#########
+
+# tar_extract(
+#     name = "extracted_bsdpserver_py",
+#     src = ":package-bin",
+#     outs = [
+#         "bsdpserver_py.runfiles/_main/spk/talospxe/bsdpserver_py",
+#     ],
+# )
+
+genrule(
+    name = "extracted_bsdpserver_py",
+    srcs = [":package-bin"],
+    outs = [
+        "bsdpserver_py.runfiles/_main/spk/talospxe/bsdpserver_py",
+    ],
+    cmd = "tar xzOf $< bsdpserver_py.runfiles/_main/spk/talospxe/bsdpserver_py > $@",
+)
+
+# patch the redirection script to use the host's python3
+# < PYTHON_BINARY = 'rules_python++python+python_3_8_aarch64-apple-darwin/bin/python3'
+# ---
+# > PYTHON_BINARY = '/bin/python3'
+#
+genrule(
+    name = "patch_bsdpserver_py_nonhermetic_use_system_python3",
+    srcs = [":extracted_bsdpserver_py"],
+    outs = ["nonhermetic_bsdpserver_py"],
+    cmd = """sed -e "/^PYTHON_BINARY =/ s|=.*$$|= '/bin/python3'|g" $< > $@""",
+)
+
+pkg_tar(
+    name = "package-bin-patched",
+    srcs = [":patch_bsdpserver_py_nonhermetic_use_system_python3"],
+    deps = [ ":package-bin" ],
+    extension = "tgz",
+    include_runfiles = True,
+    package_dir = "/bin",
+
+    # remap_paths are based on the full abspath of the resource, less the package_dir extension.
+    # This is why /bin/nonhermetic_bsdpserver_py in the archive matches /nonhermetic_bsdpserver_py
+    # and is rewritten "/bsdpserver_py.runfiles/_...ver_py" before the package_dir is applied.
+    remap_paths = {
+        "/nonhermetic_bsdpserver_py": "/bsdpserver_py.runfiles/_main/spk/talospxe/bsdpserver_py",
+    },
+)
+
+
+[copy_file(
+    name = "stub_{}".format(f),
+    src = "@rules_synology//synology:stub_script",
+    out = f,
+) for f in SPK_REQUIRED_SCRIPTS if f not in []]  # boilerplate: actual scripts would be listed there
+
+pkg_files(
+    name = "scripts",
+    srcs = [
+        #":postinst",
+        ":start-stop-status",
+    ] + [":stub_{}".format(f) for f in [
+        "preinst",
+        "preuninst",
+        "postinst",  # see above
+        "postuninst",
+        "preupgrade",
+        "postupgrade",
+    ]],
+    attributes = pkg_attributes(
+        mode = "0755",
+    ),
+    prefix = "scripts",
+)
+
+pkg_tar(
+    name = "talospxe",
+    srcs = [
+        ":conf",
+        ":icons",
+        ":info",
+        ":package",
+        ":scripts",
+        ":systemd",
+    ],
+    extension = "tar",
+    package_file_name = "{}.spk".format("talospxe"),
+    visibility = ["//visibility:public"],
+)
+

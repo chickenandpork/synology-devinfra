@@ -1,0 +1,14 @@
+interface: eth3
+
+netboot:
+  enabled: true
+  server_ip: 192.168.1.4
+
+  images:
+    - index: 1
+      enabled: true
+      default: true
+      description: "Talos BSDP Boot (32-bit EFI)"
+      kind: boot
+      bootfile: i386/booter
+      rootpath: tftp://192.168.1.4/NetBoot/NetBootSP0/Talos.nbi/

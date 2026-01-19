@@ -1,0 +1,13 @@
+[Unit]
+Description=bsdp dnsmasq
+After=multi-user.target pkg-volume.target syno-login.target
+
+[Service]
+Type=simple
+ExecStart=/var/packages/talospxe/target/bin/dnsmasq --conf-dir=/var/packages/talospxe/target/dnsmasq.d
+Restart=on-success
+RestartSec=5
+Slice=talospxe.slice
+User=root
+
+# No Install: operated by SSS
