@@ -12,7 +12,7 @@ bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "rules_multitool", version = "1.11.1")
 bazel_dep(name = "rules_pkg", version = "1.2.0")
-bazel_dep(name = "rules_python", version = "1.7.0")  # see below: eclipse transient dep
+bazel_dep(name = "rules_python", version = "1.8.5")  # see below: eclipse transient dep
 bazel_dep(name = "rules_synology", version = "0.2.3")
 #bazel_dep(name = "rules_tar", version = "1.0.1")
 
