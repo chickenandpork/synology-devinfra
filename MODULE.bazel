@@ -151,6 +151,15 @@ http_file(
     ],
 )
 
+# VictoriaMetrics icon - from the official LandingPages
+http_file(
+    name = "vm_icon",
+    sha256 = "d5558cd419c8d46bdc958064cb97f963d1ea793866414c025906ec15033512ed",
+    urls = [
+        "https://raw.githubusercontent.com/VictoriaMetrics/LandingPages/master/images/logos/victoriametrics_logo_v1.png",
+    ],
+)
+
 load_json_file = use_repo_rule("//json:load_json_file.bzl", "load_json_file")
 
 load_json_file(
