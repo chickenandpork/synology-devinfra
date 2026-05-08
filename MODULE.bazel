@@ -151,6 +151,15 @@ http_file(
     ],
 )
 
+# VictoriaMetrics icon - from the official LandingPages
+http_file(
+    name = "vm_icon",
+    sha256 = "85df5ca3735331bf36956aadbfec5f49772a3097381db356523682d8b15750a0",
+    urls = [
+        "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/victoriametrics.png",
+    ],
+)
+
 load_json_file = use_repo_rule("//json:load_json_file.bzl", "load_json_file")
 
 load_json_file(
