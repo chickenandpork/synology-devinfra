@@ -66,7 +66,7 @@ http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_
 # Application icon, sourced from squarespace CDN
 http_file(
     name = "buchgr_icon",
-    sha256 = "17b0b844fd52deff5328df2ce05e12e6d754ebda75ba1065ee0aa2127f12dcab",
+    sha256 = "2450e26363b238c74b64b471351d4461e3547c0fd073948b514f76537d5c98fa",
     urls = [
         "https://avatars.githubusercontent.com/u/1388179?s=1000&v=4",
     ],
