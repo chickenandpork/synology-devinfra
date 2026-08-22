@@ -73,6 +73,15 @@ http_file(
 )
 
 http_file(
+    name = "buildbarn_icon",
+    downloaded_file_path = "buildbarn.jpg",
+    sha256 = "4c3012ad1e073f5391ef1613e19a1af3d167f2730fbb302453e53bb079c13f48",
+    urls = [
+        "https://github.com/buildbarn.png",
+    ],
+)
+
+http_file(
     name = "dnsmasq",
     sha256 = "1071596e8e4ed85db5cd90c01a7ff1fe8fd6f10267bccb33763a1cc03d7de118",
     downloaded_file_path = "dnsmasq",
