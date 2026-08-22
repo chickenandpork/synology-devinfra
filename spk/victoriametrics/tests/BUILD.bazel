@@ -1,0 +1,503 @@
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_pkg//pkg:verify_archive.bzl", "verify_archive_test")
+
+copy_file(
+    name = "spk",
+    src = "//spk/victoriametrics:spk",
+    out = "spk.tar",
+)
+
+verify_archive_test(
+    name = "spk_container_contains_payload",
+    max_size = 60,
+    must_contain = [
+        "INFO",
+        "conf/privilege",
+        "conf/resource",
+        "conf/rez-victoriametrics_http-mdns-alias.service",
+        "conf/systemd/pkg-user-victoriametrics-victoria-logs.service",
+        "conf/systemd/pkg-user-victoriametrics-victoria-metrics.service",
+        "conf/systemd/pkg-user-victoriametrics-vmagent.service",
+        "package.tgz",
+        "scripts/postinst",
+        "scripts/postuninst",
+        "scripts/postupgrade",
+        "scripts/preinst",
+        "scripts/preuninst",
+        "scripts/preupgrade",
+        "scripts/start-stop-status",
+    ],
+    target = ":spk",
+)
+
+genrule(
+    name = "extract_resource",
+    srcs = [":spk"],
+    outs = ["resource"],
+    cmd = "tar -xOf $< conf/resource > $@",
+    message = "Extract resource",
+)
+
+genrule(
+    name = "extract_victoriametrics_mdns_alias",
+    srcs = [":spk"],
+    outs = ["victoriametrics-mdns-alias.service"],
+    cmd = "tar -xOf $< conf/rez-victoriametrics_http-mdns-alias.service > $@",
+    message = "Extract victoriametrics mdns alias service",
+)
+
+genrule(
+    name = "extract_victoriametrics_service",
+    srcs = [":spk"],
+    outs = ["victoriametrics.service"],
+    cmd = "tar -xOf $< conf/rez-victoriametrics_http-mdns-alias.service > $@",
+    message = "Extract victoriametrics service",
+)
+
+write_file(
+    name = "avahi_service_dtd",
+    out = "avahi-service.dtd",
+    content = [
+        "<!ELEMENT service-group (name,service+)>",
+        "<!ATTLIST service-group>",
+        "<!ELEMENT name (#PCDATA)>",
+        '<!ATTLIST name replace-wildcards (yes|no) "no">',
+        "<!ELEMENT service (type,subtype*,domain-name?,host-name?,port,txt-record*)>",
+        '<!ATTLIST service protocol (ipv4|ipv6|any) "any">',
+        "<!ELEMENT type (#PCDATA)>",
+        "<!ATTLIST type>",
+        "<!ELEMENT subtype (#PCDATA)>",
+        "<!ATTLIST subtype>",
+        "<!ELEMENT domain-name (#PCDATA)>",
+        "<!ATTLIST domain-name>",
+        "<!ELEMENT host-name (#PCDATA)>",
+        "<!ATTLIST host-name>",
+        "<!ELEMENT port (#PCDATA)>",
+        "<!ATTLIST port>",
+        "<!ELEMENT txt-record (#PCDATA)>",
+        "<!ATTLIST txt-record>",
+        "",
+    ],
+)
+
+write_file(
+    name = "resource_expected",
+    out = "resource.expected",
+    content = [
+        "{",
+        '  "data-share": {',
+        '    "shares": [',
+        "      {",
+        '        "name": "victoriametrics",',
+        '        "permission": {',
+        '          "rw": [',
+        '            "sc-victoriametrics"',
+        "          ]",
+        "        }",
+        "      }",
+        "    ]",
+        "  },",
+        '  "port-config": {',
+        '    "protocol-file": "conf/victoriametrics.sc"',
+        "  },",
+        '  "systemd-user-unit": {},',
+        '  "web-config": {',
+        '    "nginx-static-config": {',
+        '      "enable": [',
+        "        {",
+        '          "alias": [',
+        '            "victoriametrics.local"',
+        "          ],",
+        '          "ports": [',
+        "            {",
+        '              "port": 80,',
+        '              "protocol": "tcp",',
+        '              "schema": "http"',
+        "            }",
+        "          ],",
+        '          "type": "www"',
+        "        }",
+        "      ]",
+        "    }",
+        "  }",
+        "}",
+        "",
+    ],
+)
+
+write_file(
+    name = "victoriametrics_mdns_alias_expected",
+    out = "victoriametrics-mdns-alias.expected.service",
+    content = [
+        '<?xml version="1.0" standalone="no"?><!--*-nxml-*-->',
+        '<!DOCTYPE service-group SYSTEM "avahi-service.dtd">',
+        "",
+        "<service-group>",
+        '  <name replace-wildcards="yes">%h</name>',
+        '  <service>',
+        "    <type>_http._tcp</type>",
+        '    <host-name>victoriametrics.local</host-name>',
+        "    <port>80</port>",
+        "  </service>",
+        "</service-group>",
+        "",
+    ],
+)
+
+sh_test(
+    name = "resource_structure_test",
+    size = "small",
+    srcs = [":validate_resource_structure"],
+    args = [
+        "$(location :resource_expected)",
+        "$(location :extract_resource)",
+    ],
+    data = [
+        ":resource_expected",
+        ":extract_resource",
+    ],
+)
+
+write_file(
+    name = "validate_resource_structure",
+    out = "validate_resource_structure.sh",
+    content = [
+        "#!/bin/sh",
+        "set -eu",
+        "",
+        "canonicalize_json() {",
+        "  python3 -c 'import json, sys; from pathlib import Path; data = json.loads(Path(sys.argv[1]).read_text()); Path(sys.argv[2]).write_text(json.dumps(data, sort_keys=True, indent=2) + \"\\n\")' \"$1\" \"$2\"",
+        "}",
+        "",
+        "expected=$1",
+        "actual=$2",
+        "",
+        "normalized_expected=$(mktemp)",
+        "normalized_actual=$(mktemp)",
+        "trap 'rm -f \"$normalized_expected\" \"$normalized_actual\"' EXIT",
+        "",
+        'canonicalize_json "$expected" "$normalized_expected"',
+        'canonicalize_json "$actual" "$normalized_actual"',
+        'diff -u "$normalized_expected" "$normalized_actual"',
+        "",
+    ],
+    is_executable = True,
+)
+
+write_file(
+    name = "validate_avahi_script",
+    out = "validate_avahi.sh",
+    content = [
+        "#!/bin/sh",
+        "set -eu",
+        "",
+        'xmllint="$3"',
+        'xml="$1"',
+        'dtd="$2"',
+        "",
+        '"$xmllint" --noout --dtdvalid "$dtd" "$xml"',
+        "",
+    ],
+    is_executable = True,
+)
+
+sh_test(
+    name = "validate_avahi",
+    srcs = ["validate_avahi.sh"],
+    data = [
+        ":extract_victoriametrics_service",
+        ":avahi_service_dtd",
+        "@libxml2//:xmllint",
+    ],
+    args = [
+        "$(location :extract_victoriametrics_service)",
+        "$(location :avahi_service_dtd)",
+        "$(location @libxml2//:xmllint)",
+    ],
+)
+
+diff_test(
+    name = "victoriametrics_mdns_alias_test",
+    size = "small",
+    file1 = ":victoriametrics_mdns_alias_expected",
+    file2 = ":extract_victoriametrics_mdns_alias",
+)
+
+genrule(
+    name = "extract_package",
+    srcs = [":spk"],
+    outs = ["package.tgz"],
+    cmd = "tar -xOf $< package.tgz > $@",
+    message = "Extract package.tgz",
+)
+
+verify_archive_test(
+    name = "package_contains_binaries_and_configs",
+    max_size = 60,
+    must_contain = [
+        "bin/victoria-logs-prod",
+        "bin/victoria-metrics-prod",
+        "bin/vmagent-prod",
+        "etc/default/victoria-logs.conf",
+        "etc/default/victoria-metrics.conf",
+        "etc/default/vmagent.conf",
+        "etc/default/vmagent.yml",
+        "conf/victoriametrics.sc",
+    ],
+    target = ":extract_package",
+)
+
+genrule(
+    name = "extract_victoria_metrics_service",
+    srcs = [":spk"],
+    outs = ["victoria-metrics.service"],
+    cmd = "tar -xOf $< conf/systemd/pkg-user-victoriametrics-victoria-metrics.service > $@",
+    message = "Extract victoria-metrics.service",
+)
+
+genrule(
+    name = "extract_victoria_logs_service",
+    srcs = [":spk"],
+    outs = ["victoria-logs.service"],
+    cmd = "tar -xOf $< conf/systemd/pkg-user-victoriametrics-victoria-logs.service > $@",
+    message = "Extract victoria-logs.service",
+)
+
+genrule(
+    name = "extract_vmagent_service",
+    srcs = [":spk"],
+    outs = ["vmagent.service"],
+    cmd = "tar -xOf $< conf/systemd/pkg-user-victoriametrics-vmagent.service > $@",
+    message = "Extract vmagent.service",
+)
+
+genrule(
+    name = "extract_postinst",
+    srcs = [":spk"],
+    outs = ["postinst"],
+    cmd = "tar -xOf $< scripts/postinst > $@",
+    message = "Extract postinst",
+)
+
+diff_test(
+    name = "diff_victoria_metrics_service_test",
+    size = "small",
+    file1 = "//spk/victoriametrics:victoria-metrics.service",
+    file2 = ":extract_victoria_metrics_service",
+)
+
+diff_test(
+    name = "diff_victoria_logs_service_test",
+    size = "small",
+    file1 = "//spk/victoriametrics:victoria-logs.service",
+    file2 = ":extract_victoria_logs_service",
+)
+
+diff_test(
+    name = "diff_vmagent_service_test",
+    size = "small",
+    file1 = "//spk/victoriametrics:vmagent.service",
+    file2 = ":extract_vmagent_service",
+)
+
+write_file(
+    name = "postinst_expected",
+    out = "postinst.expected",
+    content = [
+        "#!/bin/sh",
+        "set -eu",
+        "",
+        "PKGNAME=${SYNOPKG_PKGNAME:-victoriametrics}",
+        "PKG_BASE=/var/packages/${PKGNAME}",
+        "SHARE_DIR=${PKG_BASE}/shares/${PKGNAME}",
+        "ETC_DIR=${SHARE_DIR}/etc",
+        "DATA_DIR=${SHARE_DIR}/data",
+        "LOG_DIR=${PKG_BASE}/var/log",
+        "DEFAULT_DIR=${SYNOPKG_PKGDEST}/etc/default",
+        "",
+        "mkdir -p \"${ETC_DIR}\" \"${DATA_DIR}/victoria-metrics\" \"${DATA_DIR}/victoria-logs\" \"${DATA_DIR}/vmagent\" \"${LOG_DIR}\"",
+        "",
+        "copy_if_missing() {",
+        "    if [ ! -f \"$2\" ] && [ -f \"$1\" ]; then",
+        "        cp \"$1\" \"$2\"",
+        "    fi",
+        "}",
+        "",
+        "copy_if_missing \"${DEFAULT_DIR}/victoria-metrics.conf\" \"${ETC_DIR}/victoria-metrics.conf\"",
+        "copy_if_missing \"${DEFAULT_DIR}/victoria-logs.conf\" \"${ETC_DIR}/victoria-logs.conf\"",
+        "copy_if_missing \"${DEFAULT_DIR}/vmagent.conf\" \"${ETC_DIR}/vmagent.conf\"",
+        "copy_if_missing \"${DEFAULT_DIR}/vmagent.yml\" \"${ETC_DIR}/vmagent.yml\"",
+        "",
+        "chmod 0644 \"${ETC_DIR}\"/victoria-metrics.conf \"${ETC_DIR}\"/victoria-logs.conf \"${ETC_DIR}\"/vmagent.conf \"${ETC_DIR}\"/vmagent.yml 2>/dev/null || true",
+        "chmod 0755 \"${LOG_DIR}\" 2>/dev/null || true",
+        "",
+        "chown -R sc-victoriametrics \"${SHARE_DIR}\" \"${LOG_DIR}\" 2>/dev/null || true",
+        "",
+        "exit 0",
+    ],
+)
+
+diff_test(
+    name = "diff_postinst_test",
+    size = "small",
+    file1 = ":postinst_expected",
+    file2 = ":extract_postinst",
+)
+
+genrule(
+    name = "extract_victoria_metrics_conf",
+    srcs = [":extract_package"],
+    outs = ["victoria-metrics.conf"],
+    cmd = "tar -xOf $< etc/default/victoria-metrics.conf > $@",
+    message = "Extract victoria-metrics.conf",
+)
+
+genrule(
+    name = "extract_victoria_logs_conf",
+    srcs = [":extract_package"],
+    outs = ["victoria-logs.conf"],
+    cmd = "tar -xOf $< etc/default/victoria-logs.conf > $@",
+    message = "Extract victoria-logs.conf",
+)
+
+genrule(
+    name = "extract_vmagent_conf",
+    srcs = [":extract_package"],
+    outs = ["vmagent.conf"],
+    cmd = "tar -xOf $< etc/default/vmagent.conf > $@",
+    message = "Extract vmagent.conf",
+)
+
+genrule(
+    name = "extract_vmagent_yaml",
+    srcs = [":extract_package"],
+    outs = ["vmagent.yml"],
+    cmd = "tar -xOf $< etc/default/vmagent.yml > $@",
+    message = "Extract vmagent.yml",
+)
+
+diff_test(
+    name = "diff_victoria_metrics_conf_test",
+    size = "small",
+    file1 = "//spk/victoriametrics:victoria-metrics.conf",
+    file2 = ":extract_victoria_metrics_conf",
+)
+
+diff_test(
+    name = "diff_victoria_logs_conf_test",
+    size = "small",
+    file1 = "//spk/victoriametrics:victoria-logs.conf",
+    file2 = ":extract_victoria_logs_conf",
+)
+
+diff_test(
+    name = "diff_vmagent_conf_test",
+    size = "small",
+    file1 = "//spk/victoriametrics:vmagent.conf",
+    file2 = ":extract_vmagent_conf",
+)
+
+diff_test(
+    name = "diff_vmagent_yaml_test",
+    size = "small",
+    file1 = "//spk/victoriametrics:vmagent.yml",
+    file2 = ":extract_vmagent_yaml",
+)
+
+genrule(
+    name = "extract_victoria_metrics_prod",
+    srcs = [":extract_package"],
+    outs = ["victoria-metrics-prod"],
+    cmd = "tar -xOf $< bin/victoria-metrics-prod > $@",
+    message = "Extract victoria-metrics-prod",
+)
+
+genrule(
+    name = "extract_victoria_logs_prod",
+    srcs = [":extract_package"],
+    outs = ["victoria-logs-prod"],
+    cmd = "tar -xOf $< bin/victoria-logs-prod > $@",
+    message = "Extract victoria-logs-prod",
+)
+
+genrule(
+    name = "extract_vmagent_prod",
+    srcs = [":extract_package"],
+    outs = ["vmagent-prod"],
+    cmd = "tar -xOf $< bin/vmagent-prod > $@",
+    message = "Extract vmagent-prod",
+)
+
+genrule(
+    name = "type_victoria_metrics_prod",
+    srcs = [":extract_victoria_metrics_prod"],
+    outs = ["type-of-victoria-metrics-prod"],
+    cmd = "file -b $< > $@",
+    message = "Inspect victoria-metrics-prod type",
+)
+
+genrule(
+    name = "type_victoria_logs_prod",
+    srcs = [":extract_victoria_logs_prod"],
+    outs = ["type-of-victoria-logs-prod"],
+    cmd = "file -b $< > $@",
+    message = "Inspect victoria-logs-prod type",
+)
+
+genrule(
+    name = "type_vmagent_prod",
+    srcs = [":extract_vmagent_prod"],
+    outs = ["type-of-vmagent-prod"],
+    cmd = "file -b $< > $@",
+    message = "Inspect vmagent-prod type",
+)
+
+write_file(
+    name = "victoria_metrics_prod_type_expected",
+    out = "type-of-victoria-metrics-prod.expected",
+    content = [
+        "ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), statically linked, BuildID[sha1]=c4841f7174adc5c37f55c77a47ac75544651a5cb, for GNU/Linux 3.2.0, with debug_info, not stripped",
+        "",
+    ],
+)
+
+write_file(
+    name = "victoria_logs_prod_type_expected",
+    out = "type-of-victoria-logs-prod.expected",
+    content = [
+        "ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), statically linked, BuildID[sha1]=d40fef5d907a5ce0879eb1f9d511d55f1834f19c, for GNU/Linux 3.2.0, with debug_info, not stripped",
+        "",
+    ],
+)
+
+write_file(
+    name = "vmagent_prod_type_expected",
+    out = "type-of-vmagent-prod.expected",
+    content = [
+        "ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), statically linked, BuildID[sha1]=f1dafc6b073583d1b02d30f8058ff4144d85f895, for GNU/Linux 3.2.0, with debug_info, not stripped",
+        "",
+    ],
+)
+
+diff_test(
+    name = "diff_victoria_metrics_prod_type_test",
+    size = "small",
+    file1 = ":victoria_metrics_prod_type_expected",
+    file2 = ":type_victoria_metrics_prod",
+)
+
+diff_test(
+    name = "diff_victoria_logs_prod_type_test",
+    size = "small",
+    file1 = ":victoria_logs_prod_type_expected",
+    file2 = ":type_victoria_logs_prod",
+)
+
+diff_test(
+    name = "diff_vmagent_prod_type_test",
+    size = "small",
+    file1 = ":vmagent_prod_type_expected",
+    file2 = ":type_vmagent_prod",
+)

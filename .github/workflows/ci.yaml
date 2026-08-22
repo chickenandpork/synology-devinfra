@@ -38,7 +38,7 @@ jobs:
         # action runners have bazelisk: - uses: bazelbuild/setup-bazelisk@v2
         # https://github.com/bazelbuild/bazel/issues/11062
       -
-        run: bazel test //... --test_output=errors --test_summary=detailed
+        run: bazel test //... --test_output=errors --test_summary=detailed || bazel test //... --verbose_failures
       -
         run: bazel build //...
       -
