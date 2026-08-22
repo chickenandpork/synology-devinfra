@@ -1,0 +1,34 @@
+global:
+  scrape_interval: 30s
+  scrape_timeout: 10s
+
+scrape_configs:
+  - job_name: victoria
+    static_configs:
+      - targets:
+          - 127.0.0.1:8428
+          - 127.0.0.1:9428
+          - 127.0.0.1:8429
+
+  - job_name: node
+    static_configs:
+      - targets: []
+
+  - job_name: kubelet
+    scheme: https
+    metrics_path: /metrics
+    static_configs:
+      - targets: []
+    # Add bearer_token_file and tls_config here when you enter real kubelet targets.
+
+  - job_name: kubelet_cadvisor
+    scheme: https
+    metrics_path: /metrics/cadvisor
+    static_configs:
+      - targets: []
+    # Add bearer_token_file and tls_config here when you enter real kubelet targets.
+
+  - job_name: vlagent
+    static_configs:
+      - targets: []
+
