@@ -7,6 +7,13 @@ It runs in two modes:
 - stdio MCP, for local process launch
 - `serve`, a network MCP endpoint at `http://<host>:8787/mcp`
 
+## General Use-Case
+
+The typical flow is:
+1. Upload the SPK to `/spk-upload`
+2. Install the returned server-side temp file path
+3. Restart the package or service to activate the new version
+
 ## Tools
 
 - `list_packages`
@@ -37,10 +44,14 @@ It runs in two modes:
 - `MCP_SYNO_HTTP_PATH` defaults to `/mcp`
 - `MCP_SYNO_HTTP_TOKEN` enables bearer auth when set
 
-`install_spk` accepts `spk_sha256` so the caller can verify the transferred payload before installation.
+`install_spk` accepts `spk_sha256` so the caller can verify the transferred payload before installation. For SPKs installed through the HTTP server, upload first, then pass the returned temp file path to `install_spk`.
 `service_pid` reports the current PID for a Synology service and can confirm that a previous PID has disappeared after an upgrade.
 `restart_service` checks the current service state and restarts the service if it is active, or starts it if it is not.
 `search_journal` filters entries in `mcpserver` itself, so `grep` works even when Synology's `journalctl` build lacks `--grep`.
+
+## Actions
+
+### Upload / Send
 
 To send the SPK bytes directly to the server, `POST` or `PUT` the raw file body to:
 
@@ -49,6 +60,14 @@ curl --data-binary @mcpserver-denverton-7.1.spk http://<host>:8787/spk-upload
 ```
 
 The response includes a server-side temp file path and a `sha256` checksum. Pass that temp file path to `install_spk` to install the uploaded package.
+
+### Install
+
+the `install_spk` is used to install an SPK at a location local to the MCPServer (and on the MCPServer's host, not necessarily the user/agent's) but this can be used to install a SPK that was just uploaded per "Upload / Send" instructions.
+
+### Activate / Start
+
+After install, use `restart_service` to activate the new package version. That restarts a running service in place or starts it if it is currently stopped.
 
 ## Codex
 

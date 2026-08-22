@@ -345,7 +345,7 @@ func (s *server) capabilities() serverCaps {
 }
 
 func serverInstructions() string {
-	return "Use list_packages and package_info to inspect installed SPKs. install_spk accepts a base64 payload, local path, or URL and can verify a SHA-256 digest before install. The HTTP upload endpoint accepts raw SPK bytes and returns the checksum plus temp file path for follow-up install_spk calls. check_runtime verifies Synology service state and TCP listeners. restart_service checks whether a service is active and restarts it if so, otherwise starts it. service_pid reports a service PID and can confirm a previous PID disappeared after restart. remove_package refuses packages whose INFO file disables uninstall."
+	return "Use list_packages and package_info to inspect installed SPKs. For SPK installs over the HTTP server, upload the raw bytes to /spk-upload first, then call install_spk on the returned temp file path. After install, use restart_service to activate the new version. install_spk accepts a base64 payload, local path, or URL and can verify a SHA-256 digest before install. check_runtime verifies Synology service state and TCP listeners. service_pid reports a service PID and can confirm a previous PID disappeared after restart. remove_package refuses packages whose INFO file disables uninstall."
 }
 
 func negotiateVersion(requested string) string {
@@ -360,16 +360,42 @@ func negotiateVersion(requested string) string {
 func (s *server) tools() []tool {
 	return []tool{
 		{
-			Name:        "inspect_package_path",
-			Description: "List a package directory or read the last 64 KiB of a package diagnostic file. Paths are confined to the selected package area.",
+			Name:        "check_runtime",
+			Title:       "Check runtime health",
+			Description: "Verify Synology service state, TCP listeners, and HTTP GET endpoints. HTTP probes return up to 4 KiB of response body and do not follow redirects.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"package": map[string]any{"type": "string"},
-					"area":    map[string]any{"type": "string", "enum": []string{"target", "etc", "var", "conf", "scripts"}},
-					"path":    map[string]any{"type": "string", "default": "."},
+					"host":       map[string]any{"type": "string", "description": "Host to probe for port checks, defaults to 127.0.0.1"},
+					"timeout_ms": map[string]any{"type": "integer", "minimum": 1, "description": "TCP probe timeout in milliseconds"},
+					"services": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Synology service unit names to inspect with synosystemctl get-active-status",
+					},
+					"ports": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "integer", "minimum": 1},
+						"description": "TCP ports to probe on the host",
+					},
+					"http": map[string]any{"type": "array", "items": map[string]any{
+						"type": "object", "required": []string{"port", "path"},
+						"properties": map[string]any{
+							"port": map[string]any{"type": "integer", "minimum": 1, "maximum": 65535},
+							"path": map[string]any{"type": "string", "description": "Absolute HTTP path on the probe host"},
+						},
+					}},
 				},
-				"required": []string{"package", "area"},
+			},
+			OutputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"host":     map[string]any{"type": "string"},
+					"healthy":  map[string]any{"type": "boolean"},
+					"services": map[string]any{"type": "array"},
+					"ports":    map[string]any{"type": "array"},
+					"http":     map[string]any{"type": "array"},
+				},
 			},
 			Annotations: &toolAnnotations{ReadOnlyHint: true},
 		},
@@ -404,19 +430,57 @@ func (s *server) tools() []tool {
 			Annotations: &toolAnnotations{ReadOnlyHint: true},
 		},
 		{
-			Name:        "read_package_log",
-			Title:       "Read package log",
-			Description: "Read the last lines of a DSM package log, or shared installer/system messages for worker errors. Shared sources include entries for all packages.",
+			Name:        "http_healthcheck",
+			Title:       "HTTP health check",
+			Description: "Perform an HTTP GET from the Synology host and return status and response details.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"url":        map[string]any{"type": "string"},
+					"timeout_ms": map[string]any{"type": "integer", "minimum": 1},
+				},
+				"required": []string{"url"},
+			},
+			OutputSchema: map[string]any{"type": "object"},
+			Annotations:  &toolAnnotations{ReadOnlyHint: true, OpenWorldHint: true},
+		},
+		{
+			Name:        "inspect_package_path",
+			Description: "List a package directory or read the last 64 KiB of a package diagnostic file. Paths are confined to the selected package area.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"package": map[string]any{"type": "string"},
-					"lines":   map[string]any{"type": "integer", "minimum": 1, "maximum": 2000},
-					"source":  map[string]any{"type": "string", "enum": []string{"package", "installer", "messages"}, "default": "package"},
+					"area":    map[string]any{"type": "string", "enum": []string{"target", "etc", "var", "conf", "scripts"}},
+					"path":    map[string]any{"type": "string", "default": "."},
 				},
-				"required": []string{"package"},
+				"required": []string{"package", "area"},
 			},
 			Annotations: &toolAnnotations{ReadOnlyHint: true},
+		},
+		{
+			Name:        "install_spk",
+			Title:       "Install SPK",
+			Description: "Install an SPK from a local path, uploaded base64 payload, or URL. An optional SHA-256 digest can be supplied and verified before install. The response is a JSON execution record.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"spk_path":   map[string]any{"type": "string"},
+					"spk_base64": map[string]any{"type": "string"},
+					"spk_url":    map[string]any{"type": "string"},
+					"spk_sha256": map[string]any{"type": "string", "description": "Optional SHA-256 digest of the SPK, with or without a sha256: prefix"},
+				},
+			},
+			OutputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"action":           map[string]any{"type": "string"},
+					"command":          map[string]any{"type": "object"},
+					"checksumSha256":   map[string]any{"type": "string"},
+					"checksumVerified": map[string]any{"type": "boolean"},
+				},
+			},
+			Annotations: &toolAnnotations{DestructiveHint: true, OpenWorldHint: true},
 		},
 		{
 			Name:        "list_packages",
@@ -460,6 +524,65 @@ func (s *server) tools() []tool {
 			Annotations: &toolAnnotations{ReadOnlyHint: true},
 		},
 		{
+			Name:        "read_package_log",
+			Title:       "Read package log",
+			Description: "Read the last lines of a DSM package log, or shared installer/system messages for worker errors. Shared sources include entries for all packages.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"package": map[string]any{"type": "string"},
+					"lines":   map[string]any{"type": "integer", "minimum": 1, "maximum": 2000},
+					"source":  map[string]any{"type": "string", "enum": []string{"package", "installer", "messages"}, "default": "package"},
+				},
+				"required": []string{"package"},
+			},
+			Annotations: &toolAnnotations{ReadOnlyHint: true},
+		},
+		{
+			Name:        "remove_package",
+			Title:       "Remove package",
+			Description: "Remove a non-system package unless its INFO metadata disables uninstall.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"package": map[string]any{"type": "string"},
+				},
+				"required": []string{"package"},
+			},
+			OutputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"action":  map[string]any{"type": "string"},
+					"command": map[string]any{"type": "object"},
+				},
+			},
+			Annotations: &toolAnnotations{DestructiveHint: true},
+		},
+		{
+			Name:        "restart_service",
+			Title:       "Restart service",
+			Description: "Check whether a Synology service is active, then restart it if running or start it if stopped.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"service": map[string]any{"type": "string", "description": "Synology service unit name"},
+				},
+				"required": []string{"service"},
+			},
+			OutputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"service":       map[string]any{"type": "string"},
+					"action":        map[string]any{"type": "string"},
+					"activeStatus":  map[string]any{"type": "string"},
+					"statusCommand": map[string]any{"type": "object"},
+					"command":       map[string]any{"type": "object"},
+				},
+				"required": []string{"service", "action", "statusCommand", "command"},
+			},
+			Annotations: &toolAnnotations{DestructiveHint: true},
+		},
+		{
 			Name:        "search_journal",
 			Title:       "Search journal logs",
 			Description: "Query journalctl output and return structured JSON entries.",
@@ -477,70 +600,6 @@ func (s *server) tools() []tool {
 				"properties": map[string]any{
 					"entries": map[string]any{"type": "array"},
 					"count":   map[string]any{"type": "integer"},
-				},
-			},
-			Annotations: &toolAnnotations{ReadOnlyHint: true},
-		},
-		{
-			Name:        "install_spk",
-			Title:       "Install SPK",
-			Description: "Install an SPK from a local path, uploaded base64 payload, or URL. An optional SHA-256 digest can be supplied and verified before install. The response is a JSON execution record.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"spk_path":   map[string]any{"type": "string"},
-					"spk_base64": map[string]any{"type": "string"},
-					"spk_url":    map[string]any{"type": "string"},
-					"spk_sha256": map[string]any{"type": "string", "description": "Optional SHA-256 digest of the SPK, with or without a sha256: prefix"},
-				},
-			},
-			OutputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"action":           map[string]any{"type": "string"},
-					"command":          map[string]any{"type": "object"},
-					"checksumSha256":   map[string]any{"type": "string"},
-					"checksumVerified": map[string]any{"type": "boolean"},
-				},
-			},
-			Annotations: &toolAnnotations{DestructiveHint: true, OpenWorldHint: true},
-		},
-		{
-			Name:        "check_runtime",
-			Title:       "Check runtime health",
-			Description: "Verify Synology service state, TCP listeners, and HTTP GET endpoints. HTTP probes return up to 4 KiB of response body and do not follow redirects.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"host":       map[string]any{"type": "string", "description": "Host to probe for port checks, defaults to 127.0.0.1"},
-					"timeout_ms": map[string]any{"type": "integer", "minimum": 1, "description": "TCP probe timeout in milliseconds"},
-					"services": map[string]any{
-						"type":        "array",
-						"items":       map[string]any{"type": "string"},
-						"description": "Synology service unit names to inspect with synosystemctl get-active-status",
-					},
-					"ports": map[string]any{
-						"type":        "array",
-						"items":       map[string]any{"type": "integer", "minimum": 1},
-						"description": "TCP ports to probe on the host",
-					},
-					"http": map[string]any{"type": "array", "items": map[string]any{
-						"type": "object", "required": []string{"port", "path"},
-						"properties": map[string]any{
-							"port": map[string]any{"type": "integer", "minimum": 1, "maximum": 65535},
-							"path": map[string]any{"type": "string", "description": "Absolute HTTP path on the probe host"},
-						},
-					}},
-				},
-			},
-			OutputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"host":     map[string]any{"type": "string"},
-					"healthy":  map[string]any{"type": "boolean"},
-					"services": map[string]any{"type": "array"},
-					"ports":    map[string]any{"type": "array"},
-					"http":     map[string]any{"type": "array"},
 				},
 			},
 			Annotations: &toolAnnotations{ReadOnlyHint: true},
@@ -575,50 +634,6 @@ func (s *server) tools() []tool {
 				"required": []string{"service", "healthy", "command"},
 			},
 			Annotations: &toolAnnotations{ReadOnlyHint: true},
-		},
-		{
-			Name:        "restart_service",
-			Title:       "Restart service",
-			Description: "Check whether a Synology service is active, then restart it if running or start it if stopped.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"service": map[string]any{"type": "string", "description": "Synology service unit name"},
-				},
-				"required": []string{"service"},
-			},
-			OutputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"service":       map[string]any{"type": "string"},
-					"action":        map[string]any{"type": "string"},
-					"activeStatus":  map[string]any{"type": "string"},
-					"statusCommand": map[string]any{"type": "object"},
-					"command":       map[string]any{"type": "object"},
-				},
-				"required": []string{"service", "action", "statusCommand", "command"},
-			},
-			Annotations: &toolAnnotations{DestructiveHint: true},
-		},
-		{
-			Name:        "remove_package",
-			Title:       "Remove package",
-			Description: "Remove a non-system package unless its INFO metadata disables uninstall.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"package": map[string]any{"type": "string"},
-				},
-				"required": []string{"package"},
-			},
-			OutputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"action":  map[string]any{"type": "string"},
-					"command": map[string]any{"type": "object"},
-				},
-			},
-			Annotations: &toolAnnotations{DestructiveHint: true},
 		},
 	}
 }
@@ -667,6 +682,9 @@ func (s *server) handleToolCall(ctx context.Context, req rpcRequest) rpcResponse
 	case "check_runtime":
 		res, err := s.checkRuntime(ctx, params.Arguments)
 		return record("check_runtime", res, err)
+	case "http_healthcheck":
+		res, err := s.httpHealthcheck(ctx, params.Arguments)
+		return record("http_healthcheck", res, err)
 	case "service_pid":
 		res, err := s.servicePID(ctx, params.Arguments)
 		return record("service_pid", res, err)
@@ -1126,6 +1144,67 @@ func fileSHA256(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+type httpHealthcheckResult struct {
+	URL        string `json:"url"`
+	StatusCode int    `json:"statusCode"`
+	Healthy    bool   `json:"healthy"`
+	Body       string `json:"body,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+func (s *server) httpHealthcheck(ctx context.Context, args json.RawMessage) (httpHealthcheckResult, error) {
+	var input struct {
+		URL       string `json:"url"`
+		TimeoutMS int    `json:"timeout_ms"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return httpHealthcheckResult{}, err
+	}
+	if input.URL == "" {
+		return httpHealthcheckResult{}, errors.New("url is required")
+	}
+	parsedURL, err := url.Parse(input.URL)
+	if err != nil || parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return httpHealthcheckResult{}, errors.New("url must use http or https")
+	}
+	host, _, err := net.SplitHostPort(parsedURL.Host)
+	if err != nil {
+		host = parsedURL.Hostname()
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !allowedHealthcheckIP(ip) {
+		return httpHealthcheckResult{}, errors.New("healthcheck host must be 127.0.0.1 or an RFC-1918 IPv4 address")
+	}
+	timeout := 15 * time.Second
+	if input.TimeoutMS > 0 {
+		timeout = time.Duration(input.TimeoutMS) * time.Millisecond
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, input.URL, nil)
+	if err != nil {
+		return httpHealthcheckResult{URL: input.URL, Error: err.Error()}, nil
+	}
+	response, err := (&http.Client{Timeout: timeout}).Do(request)
+	if err != nil {
+		return httpHealthcheckResult{URL: input.URL, Error: err.Error()}, nil
+	}
+	defer response.Body.Close()
+	body, readErr := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	result := httpHealthcheckResult{URL: input.URL, StatusCode: response.StatusCode, Healthy: response.StatusCode >= 200 && response.StatusCode < 300, Body: string(body)}
+	if readErr != nil {
+		result.Error = readErr.Error()
+		result.Healthy = false
+	}
+	return result, nil
+}
+
+func allowedHealthcheckIP(ip net.IP) bool {
+	ip = ip.To4()
+	if ip == nil || ip.Equal(net.IPv4(127, 0, 0, 1)) {
+		return ip != nil
+	}
+	return ip[0] == 10 || ip[0] == 192 && ip[1] == 168 || ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31
 }
 
 func (s *server) checkRuntime(ctx context.Context, args json.RawMessage) (runtimeHealthResult, error) {
