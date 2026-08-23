@@ -1,0 +1,439 @@
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
+load("@rules_pkg//pkg:verify_archive.bzl", "verify_archive_test")
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load("@rules_synology//:defs.bzl", "SPK_REQUIRED_SCRIPTS", "info_file", "maintainer", "privilege_config", "resource_config", "systemd_user_unit")
+load("@rules_go//go:def.bzl", "go_binary", "go_test")
+load(":platform_suffix.bzl", "platform_suffixed_spks")
+
+go_binary(
+    name = "mcpserver",
+    srcs = [
+        "http.go",
+        "metrics.go",
+        "main.go",
+        "server.go",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "mcpserver_test",
+    srcs = [
+        "http.go",
+        "metrics.go",
+        "server.go",
+        "server_test.go",
+    ],
+)
+
+info_file(
+    name = "info",
+    package_name = "mcpserver",
+    description = "Synology MCP server for package inspection and local package operations.",
+    displayname = "Synology MCP Server",
+    maintainer = "//:chickenandpork",
+    os_min_ver = "7.0-1",
+    package_version = "0.1.0-1",
+)
+
+privilege_config(
+    name = "priv",
+    username = "sc-mcpserver",
+)
+
+systemd_user_unit(
+    name = "systemd",
+)
+
+resource_config(
+    name = "rez",
+    resources = [
+        ":systemd",
+    ],
+)
+
+[copy_file(
+    name = "stub_{}".format(script),
+    src = "@rules_synology//synology:stub_script",
+    out = script,
+) for script in SPK_REQUIRED_SCRIPTS if script not in ["postinst", "preuninst", "start-stop-status"]]
+
+write_file(
+    name = "start_stop_status",
+    out = "start-stop-status",
+    content = [
+        "#!/bin/sh",
+        "",
+        "case \"$1\" in",
+        "    start)",
+        "        synosystemctl start pkg-user-mcpserver.service",
+        "        ;;",
+        "    stop)",
+        "        synosystemctl stop pkg-user-mcpserver.service",
+        "        ;;",
+        "    status)",
+        "        synosystemctl get-active-status pkg-user-mcpserver.service",
+        "        ;;",
+        "    log)",
+        "        journalctl -u pkg-user-mcpserver.service --no-pager -n 100",
+        "        ;;",
+        "    restart)",
+        "        synosystemctl restart pkg-user-mcpserver.service",
+        "        ;;",
+        "    preflight)",
+        "        ( set -x",
+        "        curl -fsS -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' \\",
+        "            --data '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}' \\",
+        "            http://127.0.0.1:8787/mcp >/dev/null",
+        "        )",
+        "        ;;",
+        "    *)",
+        "        echo \"Usage: $0 {start|stop|status}\" >&2",
+        "        exit 1",
+        "        ;;",
+        "esac",
+        "",
+        "exit 0",
+        "",
+    ],
+    is_executable = True,
+)
+
+write_file(
+    name = "postinst_script",
+    out = "postinst",
+    content = [
+        "#!/bin/sh",
+        "set -e",
+        "",
+        "synosystemctl start pkg-user-mcpserver.service || true",
+        "",
+        "for _ in 1 2 3 4 5 6 7 8 9 10; do",
+        "    if curl -fsS -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' \\",
+        "        --data '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}' \\",
+        "        http://127.0.0.1:8787/mcp >/dev/null; then",
+        "        break",
+        "    fi",
+        "    sleep 1",
+        "done",
+        "",
+        "exit 0",
+        "",
+    ],
+    is_executable = True,
+)
+
+write_file(
+    name = "preuninst_script",
+    out = "preuninst",
+    content = [
+        "#!/bin/sh",
+        "set -e",
+        "",
+        "synosystemctl stop pkg-user-mcpserver.service || true",
+        "",
+        "exit 0",
+        "",
+    ],
+    is_executable = True,
+)
+
+write_file(
+    name = "mcpserver_service",
+    out = "mcpserver.service",
+    content = [
+        "[Unit]",
+        "Description=Synology MCP Server",
+        "After=network-online.target",
+        "",
+        "[Service]",
+        "Type=simple",
+        "User=root",
+        "ExecReload=/bin/kill -HUP $MAINPID",
+        "ExecStart=/var/packages/mcpserver/target/bin/mcpserver serve",
+        "ExecStop=/bin/kill $MAINPID",
+        "KillMode=process",
+        "KillSignal=SIGINT",
+        "Restart=on-failure",
+        "RestartSec=5",
+        "",
+    ],
+    is_executable = False,
+)
+
+pkg_files(
+    name = "systemd_conf",
+    srcs = [":mcpserver_service"],
+    attributes = pkg_attributes(
+        mode = "0444",
+    ),
+    prefix = "conf",
+    renames = {
+        "mcpserver.service": "systemd/pkg-user-mcpserver.service",
+    },
+    visibility = ["//visibility:public"],
+)
+
+pkg_files(
+    name = "scripts",
+    srcs = [
+        ":postinst_script",
+        ":preuninst_script",
+        ":start-stop-status",
+    ] + [":stub_{}".format(script) for script in SPK_REQUIRED_SCRIPTS if script not in ["postinst", "preuninst", "start-stop-status"]],
+    attributes = pkg_attributes(
+        mode = "0755",
+    ),
+    prefix = "scripts",
+    visibility = ["//visibility:public"],
+)
+
+pkg_files(
+    name = "bin",
+    srcs = [":mcpserver"],
+    attributes = pkg_attributes(
+        mode = "0555",
+    ),
+    prefix = "bin",
+    visibility = ["//visibility:public"],
+)
+
+pkg_tar(
+    name = "package",
+    srcs = [":bin"],
+    extension = "tgz",
+    package_dir = "/",
+    visibility = ["//visibility:public"],
+)
+
+pkg_files(
+    name = "conf",
+    srcs = [":priv", ":rez"],
+    attributes = pkg_attributes(
+        mode = "0444",
+    ),
+    prefix = "conf",
+    visibility = ["//visibility:public"],
+)
+
+pkg_tar(
+    name = "spk",
+    srcs = [
+        ":conf",
+        ":info",
+        ":systemd_conf",
+        ":package",
+        ":scripts",
+    ],
+    extension = "tar",
+    package_file_name = "mcpserver.spk",
+    visibility = ["//visibility:public"],
+)
+
+copy_file(
+    name = "spk_archive",
+    src = ":spk",
+    out = "mcpserver-spk.tar",
+)
+
+platform_suffixed_spks(
+    name = "spk_platforms",
+    base_spk = ":spk",
+    package_basename = "mcpserver",
+    platforms = {
+        "ds1819+-7.1": "@rules_synology//models:ds1819+-7.1",
+    },
+)
+
+genrule(
+    name = "extract_package",
+    srcs = [":spk_archive"],
+    outs = ["extracted-package.tgz"],
+    cmd = "tar -xOf $< package.tgz > $@",
+    message = "Extract package.tgz",
+)
+
+genrule(
+    name = "spk_platforms_basenames",
+    srcs = [":spk_platforms"],
+    outs = ["spk-platforms.basenames"],
+    cmd = "for f in $(locations :spk_platforms); do basename $$f; done > $@",
+    message = "Extract platform suffixed package basenames",
+)
+
+genrule(
+    name = "extract_service_unit",
+    srcs = [":spk_archive"],
+    outs = ["pkg-user-mcpserver.service"],
+    cmd = "tar -xOf $< conf/systemd/pkg-user-mcpserver.service > $@",
+    message = "Extract service unit",
+)
+
+genrule(
+    name = "extract_postinst",
+    srcs = [":spk_archive"],
+    outs = ["postinst.extracted"],
+    cmd = "tar -xOf $< scripts/postinst > $@",
+    message = "Extract postinst",
+)
+
+genrule(
+    name = "extract_start_stop_status",
+    srcs = [":spk_archive"],
+    outs = ["start-stop-status.extracted"],
+    cmd = "tar -xOf $< scripts/start-stop-status > $@",
+    message = "Extract start-stop-status",
+)
+
+write_file(
+    name = "service_unit_expected",
+    out = "pkg-user-mcpserver.expected",
+    content = [
+        "[Unit]",
+        "Description=Synology MCP Server",
+        "After=network-online.target",
+        "",
+        "[Service]",
+        "Type=simple",
+        "User=root",
+        "ExecReload=/bin/kill -HUP $MAINPID",
+        "ExecStart=/var/packages/mcpserver/target/bin/mcpserver serve",
+        "ExecStop=/bin/kill $MAINPID",
+        "KillMode=process",
+        "KillSignal=SIGINT",
+        "Restart=on-failure",
+        "RestartSec=5",
+        "",
+    ],
+)
+
+write_file(
+    name = "postinst_expected",
+    out = "postinst.expected",
+    content = [
+        "#!/bin/sh",
+        "set -e",
+        "",
+        "synosystemctl start pkg-user-mcpserver.service || true",
+        "",
+        "for _ in 1 2 3 4 5 6 7 8 9 10; do",
+        "    if curl -fsS -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' \\",
+        "        --data '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}' \\",
+        "        http://127.0.0.1:8787/mcp >/dev/null; then",
+        "        break",
+        "    fi",
+        "    sleep 1",
+        "done",
+        "",
+        "exit 0",
+        "",
+    ],
+)
+
+write_file(
+    name = "start_stop_status_expected",
+    out = "start-stop-status.expected",
+    content = [
+        "#!/bin/sh",
+        "",
+        "case \"$1\" in",
+        "    start)",
+        "        synosystemctl start pkg-user-mcpserver.service",
+        "        ;;",
+        "    stop)",
+        "        synosystemctl stop pkg-user-mcpserver.service",
+        "        ;;",
+        "    status)",
+        "        synosystemctl get-active-status pkg-user-mcpserver.service",
+        "        ;;",
+        "    log)",
+        "        journalctl -u pkg-user-mcpserver.service --no-pager -n 100",
+        "        ;;",
+        "    restart)",
+        "        synosystemctl restart pkg-user-mcpserver.service",
+        "        ;;",
+        "    preflight)",
+        "        ( set -x",
+        "        curl -fsS -H 'MCP-Protocol-Version: 2025-06-18' -H 'Content-Type: application/json' \\",
+        "            --data '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}' \\",
+        "            http://127.0.0.1:8787/mcp >/dev/null",
+        "        )",
+        "        ;;",
+        "    *)",
+        "        echo \"Usage: $0 {start|stop|status}\" >&2",
+        "        exit 1",
+        "        ;;",
+        "esac",
+        "",
+        "exit 0",
+        "",
+    ],
+)
+
+verify_archive_test(
+    name = "spk_container_contains_package_tar",
+    max_size = 50,
+    must_contain = [
+        "INFO",
+        "conf/resource",
+        "conf/systemd/pkg-user-mcpserver.service",
+        "package.tgz",
+        "scripts/postinst",
+        "scripts/postuninst",
+        "scripts/postupgrade",
+        "scripts/preinst",
+        "scripts/preuninst",
+        "scripts/preupgrade",
+        "scripts/start-stop-status",
+    ],
+    target = ":spk_archive",
+)
+
+verify_archive_test(
+    name = "package_contains_binary",
+    max_size = 50000,
+    must_contain = [
+        "bin/mcpserver",
+    ],
+    target = ":extract_package",
+)
+
+diff_test(
+    name = "diff_service_unit_test",
+    size = "small",
+    file1 = ":service_unit_expected",
+    file2 = ":extract_service_unit",
+)
+
+diff_test(
+    name = "diff_postinst_test",
+    size = "small",
+    file1 = ":postinst_expected",
+    file2 = ":extract_postinst",
+)
+
+diff_test(
+    name = "diff_start_stop_status_test",
+    size = "small",
+    file1 = ":start_stop_status_expected",
+    file2 = ":extract_start_stop_status",
+)
+
+write_file(
+    name = "spk_platforms_expected",
+    out = "spk-platforms.expected",
+    content = [
+        "mcpserver-ds1819+-7.1.spk",
+        "",
+    ],
+)
+
+diff_test(
+    name = "diff_spk_platforms_basenames_test",
+    size = "small",
+    file1 = ":spk_platforms_expected",
+    file2 = ":spk_platforms_basenames",
+)
