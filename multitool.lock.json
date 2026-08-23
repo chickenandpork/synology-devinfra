@@ -59,5 +59,25 @@
         "cpu": "x86_64"
       }
     ]
+  },
+  "victoria-metrics": {
+    "binaries": [
+      {
+        "kind": "archive",
+        "url": "https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v1.142.0/victoria-metrics-linux-arm64-v1.142.0.tar.gz",
+        "file": "victoria-metrics-prod",
+        "sha256": "6051937d5cab34eb3f02171e0f68e2ad8119ce368c8e7d4e766739e5afc002a2",
+        "os": "linux",
+        "cpu": "arm64"
+      },
+      {
+        "kind": "archive",
+        "url": "https://github.com/VictoriaMetrics/VictoriaMetrics/releases/download/v1.142.0/victoria-metrics-linux-amd64-v1.142.0.tar.gz",
+        "file": "victoria-metrics-prod",
+        "sha256": "878e09069184d4cc86297e1f0574f2a78f5ebfce87dd1d32b286abf13aad4f85",
+        "os": "linux",
+        "cpu": "x86_64"
+      }
+    ]
   }
 }
