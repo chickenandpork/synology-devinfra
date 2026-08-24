@@ -1,9 +1,9 @@
 def _platform_suffix_transition_impl(settings, attr):
     return {
-        suffix: {
-            "//command_line_option:platforms": [platform],
+        platform.name: {
+            "//command_line_option:platforms": [str(platform)],
         }
-        for suffix, platform in attr.platforms.items()
+        for platform in attr.platforms
     }
 
 
@@ -44,6 +44,6 @@ platform_suffixed_spks = rule(
             providers = [DefaultInfo],
         ),
         "package_basename": attr.string(mandatory = True),
-        "platforms": attr.string_dict(mandatory = True),
+        "platforms": attr.label_list(mandatory = True),
     },
 )

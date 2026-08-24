@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -18,12 +21,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
 const (
 	serverName     = "synology-mcpserver"
-	serverVersion  = "0.1.0"
+	serverVersion  = "0.1.2"
 	defaultPkgDir  = "/var/packages"
 	defaultMaxLogs = 200
 )
@@ -37,22 +41,24 @@ var supportedVersions = []string{
 }
 
 type config struct {
-	PackagesDir    string
-	SynopkgBin     string
-	JournalctlBin  string
-	MaxJournalLen  int
-	DownloadLimit  time.Duration
-	AllowUninstall bool
+	PackagesDir      string
+	SynopkgBin       string
+	SynosystemctlBin string
+	JournalctlBin    string
+	MaxJournalLen    int
+	DownloadLimit    time.Duration
+	AllowUninstall   bool
 }
 
 func defaultConfig() config {
 	return config{
-		PackagesDir:    envOrDefault("MCP_SYNO_PACKAGES_DIR", defaultPkgDir),
-		SynopkgBin:     envOrDefault("MCP_SYNO_SYNOPKG_BIN", "synopkg"),
-		JournalctlBin:  envOrDefault("MCP_SYNO_JOURNALCTL_BIN", "journalctl"),
-		MaxJournalLen:  envIntOrDefault("MCP_SYNO_JOURNAL_LINES", defaultMaxLogs),
-		DownloadLimit:  envDurationOrDefault("MCP_SYNO_DOWNLOAD_TIMEOUT", 2*time.Minute),
-		AllowUninstall: envBoolOrDefault("MCP_SYNO_ALLOW_UNINSTALL", true),
+		PackagesDir:      envOrDefault("MCP_SYNO_PACKAGES_DIR", defaultPkgDir),
+		SynopkgBin:       envOrDefault("MCP_SYNO_SYNOPKG_BIN", "synopkg"),
+		SynosystemctlBin: envOrDefault("MCP_SYNO_SYNOSYSTEMCTL_BIN", "synosystemctl"),
+		JournalctlBin:    envOrDefault("MCP_SYNO_JOURNALCTL_BIN", "journalctl"),
+		MaxJournalLen:    envIntOrDefault("MCP_SYNO_JOURNAL_LINES", defaultMaxLogs),
+		DownloadLimit:    envDurationOrDefault("MCP_SYNO_DOWNLOAD_TIMEOUT", 2*time.Minute),
+		AllowUninstall:   envBoolOrDefault("MCP_SYNO_ALLOW_UNINSTALL", true),
 	}
 }
 
@@ -202,6 +208,38 @@ type journalSearchResult struct {
 	Count   int              `json:"count"`
 }
 
+type serviceHealthResult struct {
+	Name         string        `json:"name"`
+	Healthy      bool          `json:"healthy"`
+	ActiveStatus string        `json:"activeStatus,omitempty"`
+	Command      commandResult `json:"command"`
+}
+
+type servicePidResult struct {
+	Service          string        `json:"service"`
+	Healthy          bool          `json:"healthy"`
+	ActiveStatus     string        `json:"activeStatus,omitempty"`
+	Pid              int           `json:"pid,omitempty"`
+	PreviousPid      int           `json:"previousPid,omitempty"`
+	PreviousPidAlive bool          `json:"previousPidAlive,omitempty"`
+	Command          commandResult `json:"command"`
+}
+
+type portHealthResult struct {
+	Host    string `json:"host"`
+	Port    int    `json:"port"`
+	Address string `json:"address"`
+	Healthy bool   `json:"healthy"`
+	Error   string `json:"error,omitempty"`
+}
+
+type runtimeHealthResult struct {
+	Host     string                `json:"host"`
+	Healthy  bool                  `json:"healthy"`
+	Services []serviceHealthResult `json:"services"`
+	Ports    []portHealthResult    `json:"ports"`
+}
+
 type commandResult struct {
 	Command  string   `json:"command"`
 	Args     []string `json:"args"`
@@ -211,12 +249,22 @@ type commandResult struct {
 }
 
 type packageCommandResult struct {
-	Action     string        `json:"action"`
-	Package    string        `json:"package,omitempty"`
-	Source     string        `json:"source,omitempty"`
-	TempFile   string        `json:"tempFile,omitempty"`
-	Command    commandResult `json:"command"`
-	ParsedJSON any           `json:"parsedJson,omitempty"`
+	Action           string        `json:"action"`
+	Package          string        `json:"package,omitempty"`
+	Source           string        `json:"source,omitempty"`
+	TempFile         string        `json:"tempFile,omitempty"`
+	ChecksumSHA256   string        `json:"checksumSha256,omitempty"`
+	ChecksumVerified bool          `json:"checksumVerified,omitempty"`
+	Command          commandResult `json:"command"`
+	ParsedJSON       any           `json:"parsedJson,omitempty"`
+}
+
+type spkUploadResult struct {
+	Action         string `json:"action"`
+	Source         string `json:"source"`
+	TempFile       string `json:"tempFile"`
+	ChecksumSHA256 string `json:"checksumSha256"`
+	SizeBytes      int64  `json:"sizeBytes"`
 }
 
 func (s *server) handle(ctx context.Context, req rpcRequest) (resp rpcResponse) {
@@ -271,7 +319,7 @@ func (s *server) capabilities() serverCaps {
 }
 
 func serverInstructions() string {
-	return "Use list_packages and package_info to inspect installed SPKs. install_spk accepts a base64 payload, local path, or URL and returns a JSON execution result. remove_package refuses packages whose INFO file disables uninstall."
+	return "Use list_packages and package_info to inspect installed SPKs. install_spk accepts a base64 payload, local path, or URL and can verify a SHA-256 digest before install. The HTTP upload endpoint accepts raw SPK bytes and returns the checksum plus temp file path for follow-up install_spk calls. check_runtime verifies Synology service state and TCP listeners. service_pid reports a service PID and can confirm a previous PID disappeared after restart. remove_package refuses packages whose INFO file disables uninstall."
 }
 
 func negotiateVersion(requested string) string {
@@ -351,23 +399,89 @@ func (s *server) tools() []tool {
 		{
 			Name:        "install_spk",
 			Title:       "Install SPK",
-			Description: "Install an SPK from a local path, uploaded base64 payload, or URL. The response is a JSON execution record.",
+			Description: "Install an SPK from a local path, uploaded base64 payload, or URL. An optional SHA-256 digest can be supplied and verified before install. The response is a JSON execution record.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"spk_path":   map[string]any{"type": "string"},
 					"spk_base64": map[string]any{"type": "string"},
 					"spk_url":    map[string]any{"type": "string"},
+					"spk_sha256": map[string]any{"type": "string", "description": "Optional SHA-256 digest of the SPK, with or without a sha256: prefix"},
 				},
 			},
 			OutputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"action":  map[string]any{"type": "string"},
-					"command": map[string]any{"type": "object"},
+					"action":           map[string]any{"type": "string"},
+					"command":          map[string]any{"type": "object"},
+					"checksumSha256":   map[string]any{"type": "string"},
+					"checksumVerified": map[string]any{"type": "boolean"},
 				},
 			},
 			Annotations: &toolAnnotations{DestructiveHint: true, OpenWorldHint: true},
+		},
+		{
+			Name:        "check_runtime",
+			Title:       "Check runtime health",
+			Description: "Verify Synology service state and TCP listeners for a set of services and ports.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"host":       map[string]any{"type": "string", "description": "Host to probe for port checks, defaults to 127.0.0.1"},
+					"timeout_ms": map[string]any{"type": "integer", "minimum": 1, "description": "TCP probe timeout in milliseconds"},
+					"services": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Synology service unit names to inspect with synosystemctl get-active-status",
+					},
+					"ports": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "integer", "minimum": 1},
+						"description": "TCP ports to probe on the host",
+					},
+				},
+			},
+			OutputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"host":     map[string]any{"type": "string"},
+					"healthy":  map[string]any{"type": "boolean"},
+					"services": map[string]any{"type": "array"},
+					"ports":    map[string]any{"type": "array"},
+				},
+			},
+			Annotations: &toolAnnotations{ReadOnlyHint: true},
+		},
+		{
+			Name:        "service_pid",
+			Title:       "Read service PID",
+			Description: "Read the PID for a Synology service and optionally confirm that a previous PID is gone after restart.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"service": map[string]any{"type": "string", "description": "Synology service unit name"},
+					"previous_pid": map[string]any{
+						"type":        "integer",
+						"minimum":     1,
+						"description": "Optional PID that should no longer be running after an update",
+					},
+				},
+				"required": []string{"service"},
+			},
+			OutputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"service":          map[string]any{"type": "string"},
+					"healthy":          map[string]any{"type": "boolean"},
+					"activeStatus":     map[string]any{"type": "string"},
+					"pid":              map[string]any{"type": "integer"},
+					"previousPid":      map[string]any{"type": "integer"},
+					"previousPidAlive": map[string]any{"type": "boolean"},
+					"command":          map[string]any{"type": "object"},
+				},
+				"required": []string{"service", "healthy", "command"},
+			},
+			Annotations: &toolAnnotations{ReadOnlyHint: true},
 		},
 		{
 			Name:        "remove_package",
@@ -421,6 +535,12 @@ func (s *server) handleToolCall(ctx context.Context, req rpcRequest) rpcResponse
 	case "install_spk":
 		res, err := s.installSPK(ctx, params.Arguments)
 		return record("install_spk", res, err)
+	case "check_runtime":
+		res, err := s.checkRuntime(ctx, params.Arguments)
+		return record("check_runtime", res, err)
+	case "service_pid":
+		res, err := s.servicePID(ctx, params.Arguments)
+		return record("service_pid", res, err)
 	case "remove_package":
 		res, err := s.removePackage(ctx, params.Arguments)
 		return record("remove_package", res, err)
@@ -521,9 +641,6 @@ func (s *server) searchJournal(ctx context.Context, args json.RawMessage) (journ
 	if input.Unit != "" {
 		cmdArgs = append(cmdArgs, "-u", input.Unit)
 	}
-	if input.Grep != "" {
-		cmdArgs = append(cmdArgs, "--grep", input.Grep)
-	}
 	if input.Since != "" {
 		cmdArgs = append(cmdArgs, "--since", input.Since)
 	}
@@ -551,7 +668,46 @@ func (s *server) searchJournal(ctx context.Context, args json.RawMessage) (journ
 	if err := scanner.Err(); err != nil {
 		return journalSearchResult{}, err
 	}
+
+	if input.Grep != "" {
+		entries = filterJournalEntries(entries, input.Grep)
+	}
+
 	return journalSearchResult{Entries: entries, Count: len(entries)}, nil
+}
+
+func filterJournalEntries(entries []map[string]any, needle string) []map[string]any {
+	if needle == "" {
+		return entries
+	}
+
+	filtered := make([]map[string]any, 0, len(entries))
+	for _, entry := range entries {
+		if journalEntryMatches(entry, needle) {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
+}
+
+func journalEntryMatches(value any, needle string) bool {
+	switch v := value.(type) {
+	case string:
+		return strings.Contains(v, needle)
+	case map[string]any:
+		for _, nested := range v {
+			if journalEntryMatches(nested, needle) {
+				return true
+			}
+		}
+	case []any:
+		for _, nested := range v {
+			if journalEntryMatches(nested, needle) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *server) removePackage(ctx context.Context, args json.RawMessage) (packageCommandResult, error) {
@@ -588,6 +744,7 @@ func (s *server) installSPK(ctx context.Context, args json.RawMessage) (packageC
 		SPKPath   string `json:"spk_path"`
 		SPKBase64 string `json:"spk_base64"`
 		SPKURL    string `json:"spk_url"`
+		SPKSHA256 string `json:"spk_sha256"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
 		return packageCommandResult{}, err
@@ -640,13 +797,225 @@ func (s *server) installSPK(ctx context.Context, args json.RawMessage) (packageC
 	if !strings.HasSuffix(strings.ToLower(path), ".spk") {
 		return packageCommandResult{}, fmt.Errorf("refusing to install non-SPK file %q", path)
 	}
+	checksum, err := fileSHA256(path)
+	if err != nil {
+		return packageCommandResult{}, err
+	}
+	expected := normalizeSHA256(input.SPKSHA256)
+	if expected != "" && !strings.EqualFold(expected, checksum) {
+		return packageCommandResult{}, fmt.Errorf("checksum mismatch for %q: got %s want %s", path, checksum, expected)
+	}
 	cmdRes := runCommand(ctx, s.cfg.SynopkgBin, "install", path)
 	return packageCommandResult{
-		Action:   "install_spk",
-		Source:   source,
-		TempFile: pathIfTemp(source, path),
-		Command:  cmdRes,
+		Action:           "install_spk",
+		Source:           source,
+		TempFile:         pathIfTemp(source, path),
+		ChecksumSHA256:   checksum,
+		ChecksumVerified: expected != "",
+		Command:          cmdRes,
 	}, nil
+}
+
+func normalizeSHA256(raw string) string {
+	value := strings.TrimSpace(strings.ToLower(raw))
+	value = strings.TrimPrefix(value, "sha256:")
+	return value
+}
+
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("cannot read SPK %q; upload the bytes to /spk-upload and install the returned temp file path: %w", path, err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func (s *server) checkRuntime(ctx context.Context, args json.RawMessage) (runtimeHealthResult, error) {
+	var input struct {
+		Host      string   `json:"host"`
+		TimeoutMS int      `json:"timeout_ms"`
+		Services  []string `json:"services"`
+		Ports     []int    `json:"ports"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return runtimeHealthResult{}, err
+	}
+	if len(input.Services) == 0 && len(input.Ports) == 0 {
+		return runtimeHealthResult{}, errors.New("at least one service or port is required")
+	}
+
+	host := input.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+
+	timeout := time.Second
+	if input.TimeoutMS > 0 {
+		timeout = time.Duration(input.TimeoutMS) * time.Millisecond
+	}
+
+	result := runtimeHealthResult{Host: host}
+	healthy := true
+
+	for _, service := range input.Services {
+		cmdRes := runCommand(ctx, s.cfg.SynosystemctlBin, "get-active-status", service)
+		serviceRes := serviceHealthResult{
+			Name:    service,
+			Command: cmdRes,
+		}
+		if cmdRes.ExitCode == 0 {
+			status := strings.TrimSpace(strings.ToLower(cmdRes.Stdout))
+			serviceRes.ActiveStatus = status
+			serviceRes.Healthy = status == "active"
+		}
+		if !serviceRes.Healthy {
+			healthy = false
+		}
+		result.Services = append(result.Services, serviceRes)
+	}
+
+	for _, port := range input.Ports {
+		address := net.JoinHostPort(host, strconv.Itoa(port))
+		portRes := portHealthResult{
+			Host:    host,
+			Port:    port,
+			Address: address,
+		}
+		dialer := net.Dialer{Timeout: timeout}
+		conn, err := dialer.DialContext(ctx, "tcp", address)
+		if err != nil {
+			portRes.Error = err.Error()
+			healthy = false
+		} else {
+			portRes.Healthy = true
+			_ = conn.Close()
+		}
+		result.Ports = append(result.Ports, portRes)
+	}
+
+	result.Healthy = healthy
+	return result, nil
+}
+
+func (s *server) servicePID(ctx context.Context, args json.RawMessage) (servicePidResult, error) {
+	var input struct {
+		Service     string `json:"service"`
+		PreviousPID int    `json:"previous_pid"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return servicePidResult{}, err
+	}
+	if input.Service == "" {
+		return servicePidResult{}, errors.New("service is required")
+	}
+
+	result := servicePidResult{Service: input.Service}
+	if input.PreviousPID > 0 {
+		result.PreviousPid = input.PreviousPID
+	}
+
+	statusRes := runCommand(ctx, s.cfg.SynosystemctlBin, "get-active-status", input.Service)
+	result.Command = statusRes
+	if statusRes.ExitCode != 0 {
+		return result, nil
+	}
+
+	result.ActiveStatus = strings.TrimSpace(strings.ToLower(statusRes.Stdout))
+	if result.ActiveStatus != "active" {
+		result.Healthy = false
+		return result, nil
+	}
+
+	pid, _, _ := s.lookupServicePID(ctx, input.Service)
+	if pid > 0 {
+		result.Pid = pid
+	}
+
+	if input.PreviousPID > 0 {
+		result.PreviousPidAlive = processAlive(input.PreviousPID)
+		result.Healthy = result.Pid > 0 && result.Pid != input.PreviousPID && !result.PreviousPidAlive
+		return result, nil
+	}
+
+	result.Healthy = result.Pid > 0
+	return result, nil
+}
+
+func (s *server) lookupServicePID(ctx context.Context, service string) (int, commandResult, error) {
+	attempts := [][]string{
+		{"get-pid", service},
+		{"status", service},
+		{"show", "-p", "MainPID", service},
+		{"show", "-p", "MainPID", "--value", service},
+	}
+
+	var last commandResult
+	for _, args := range attempts {
+		cmdRes := runCommand(ctx, s.cfg.SynosystemctlBin, args...)
+		last = cmdRes
+		if cmdRes.ExitCode != 0 {
+			continue
+		}
+		if pid, ok := parsePIDFromOutput(strings.Join(args, " "), cmdRes.Stdout); ok {
+			return pid, cmdRes, nil
+		}
+	}
+	return 0, last, errors.New("unable to determine service pid")
+}
+
+func parsePIDFromOutput(command string, stdout string) (int, bool) {
+	trimmed := strings.TrimSpace(stdout)
+	if trimmed == "" {
+		return 0, false
+	}
+
+	if strings.Contains(command, "status") {
+		scanner := bufio.NewScanner(strings.NewReader(trimmed))
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			lower := strings.ToLower(line)
+			if strings.Contains(lower, "pid") {
+				if pid, ok := firstPositiveInt(line); ok {
+					return pid, true
+				}
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			return 0, false
+		}
+		return 0, false
+	}
+
+	return firstPositiveInt(trimmed)
+}
+
+func firstPositiveInt(raw string) (int, bool) {
+	fields := strings.FieldsFunc(raw, func(r rune) bool {
+		return r < '0' || r > '9'
+	})
+	for _, field := range fields {
+		if field == "" {
+			continue
+		}
+		value, err := strconv.Atoi(field)
+		if err == nil && value > 0 {
+			return value, true
+		}
+	}
+	return 0, false
+}
+
+func processAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	return syscall.Kill(pid, 0) == nil
 }
 
 func pathIfTemp(source, path string) string {
@@ -654,6 +1023,35 @@ func pathIfTemp(source, path string) string {
 		return ""
 	}
 	return path
+}
+
+func writeUploadedSPK(r io.Reader) (string, string, int64, error) {
+	const maxUploadedSPKSize = 256 << 20
+
+	f, err := os.CreateTemp("", "mcp-spk-*.spk")
+	if err != nil {
+		return "", "", 0, err
+	}
+
+	h := sha256.New()
+	limited := io.LimitReader(r, maxUploadedSPKSize+1)
+	size, err := io.Copy(io.MultiWriter(f, h), limited)
+	if err != nil {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return "", "", 0, err
+	}
+	if size > maxUploadedSPKSize {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return "", "", 0, fmt.Errorf("uploaded SPK exceeds %d bytes", maxUploadedSPKSize)
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(f.Name())
+		return "", "", 0, err
+	}
+
+	return f.Name(), hex.EncodeToString(h.Sum(nil)), size, nil
 }
 
 func downloadSPK(ctx context.Context, rawURL string, timeout time.Duration) (string, error) {
