@@ -15,6 +15,7 @@ It runs in two modes:
 - `install_spk`
 - `check_runtime`
 - `service_pid`
+- `restart_service`
 - `remove_package`
 
 ## Configuration
@@ -32,6 +33,7 @@ It runs in two modes:
 
 `install_spk` accepts `spk_sha256` so the caller can verify the transferred payload before installation.
 `service_pid` reports the current PID for a Synology service and can confirm that a previous PID has disappeared after an upgrade.
+`restart_service` checks the current service state and restarts the service if it is active, or starts it if it is not.
 `search_journal` filters entries in `mcpserver` itself, so `grep` works even when Synology's `journalctl` build lacks `--grep`.
 
 To send the SPK bytes directly to the server, `POST` or `PUT` the raw file body to:

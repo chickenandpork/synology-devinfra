@@ -225,6 +225,14 @@ type servicePidResult struct {
 	Command          commandResult `json:"command"`
 }
 
+type serviceRestartResult struct {
+	Service       string        `json:"service"`
+	Action        string        `json:"action"`
+	ActiveStatus  string        `json:"activeStatus,omitempty"`
+	StatusCommand commandResult `json:"statusCommand"`
+	Command       commandResult `json:"command"`
+}
+
 type portHealthResult struct {
 	Host    string `json:"host"`
 	Port    int    `json:"port"`
@@ -319,7 +327,7 @@ func (s *server) capabilities() serverCaps {
 }
 
 func serverInstructions() string {
-	return "Use list_packages and package_info to inspect installed SPKs. install_spk accepts a base64 payload, local path, or URL and can verify a SHA-256 digest before install. The HTTP upload endpoint accepts raw SPK bytes and returns the checksum plus temp file path for follow-up install_spk calls. check_runtime verifies Synology service state and TCP listeners. service_pid reports a service PID and can confirm a previous PID disappeared after restart. remove_package refuses packages whose INFO file disables uninstall."
+	return "Use list_packages and package_info to inspect installed SPKs. install_spk accepts a base64 payload, local path, or URL and can verify a SHA-256 digest before install. The HTTP upload endpoint accepts raw SPK bytes and returns the checksum plus temp file path for follow-up install_spk calls. check_runtime verifies Synology service state and TCP listeners. restart_service checks whether a service is active and restarts it if so, otherwise starts it. service_pid reports a service PID and can confirm a previous PID disappeared after restart. remove_package refuses packages whose INFO file disables uninstall."
 }
 
 func negotiateVersion(requested string) string {
@@ -484,6 +492,30 @@ func (s *server) tools() []tool {
 			Annotations: &toolAnnotations{ReadOnlyHint: true},
 		},
 		{
+			Name:        "restart_service",
+			Title:       "Restart service",
+			Description: "Check whether a Synology service is active, then restart it if running or start it if stopped.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"service": map[string]any{"type": "string", "description": "Synology service unit name"},
+				},
+				"required": []string{"service"},
+			},
+			OutputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"service":       map[string]any{"type": "string"},
+					"action":        map[string]any{"type": "string"},
+					"activeStatus":  map[string]any{"type": "string"},
+					"statusCommand": map[string]any{"type": "object"},
+					"command":       map[string]any{"type": "object"},
+				},
+				"required": []string{"service", "action", "statusCommand", "command"},
+			},
+			Annotations: &toolAnnotations{DestructiveHint: true},
+		},
+		{
 			Name:        "remove_package",
 			Title:       "Remove package",
 			Description: "Remove a non-system package unless its INFO metadata disables uninstall.",
@@ -541,6 +573,9 @@ func (s *server) handleToolCall(ctx context.Context, req rpcRequest) rpcResponse
 	case "service_pid":
 		res, err := s.servicePID(ctx, params.Arguments)
 		return record("service_pid", res, err)
+	case "restart_service":
+		res, err := s.restartService(ctx, params.Arguments)
+		return record("restart_service", res, err)
 	case "remove_package":
 		res, err := s.removePackage(ctx, params.Arguments)
 		return record("remove_package", res, err)
@@ -944,6 +979,35 @@ func (s *server) servicePID(ctx context.Context, args json.RawMessage) (serviceP
 	}
 
 	result.Healthy = result.Pid > 0
+	return result, nil
+}
+
+func (s *server) restartService(ctx context.Context, args json.RawMessage) (serviceRestartResult, error) {
+	var input struct {
+		Service string `json:"service"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return serviceRestartResult{}, err
+	}
+	if input.Service == "" {
+		return serviceRestartResult{}, errors.New("service is required")
+	}
+
+	statusRes := runCommand(ctx, s.cfg.SynosystemctlBin, "get-active-status", input.Service)
+	result := serviceRestartResult{
+		Service:       input.Service,
+		StatusCommand: statusRes,
+	}
+	if statusRes.ExitCode == 0 {
+		result.ActiveStatus = strings.TrimSpace(strings.ToLower(statusRes.Stdout))
+	}
+
+	action := "start"
+	if result.ActiveStatus == "active" {
+		action = "restart"
+	}
+	result.Action = action
+	result.Command = runCommand(ctx, s.cfg.SynosystemctlBin, action, input.Service)
 	return result, nil
 }
 

@@ -90,6 +90,16 @@ func TestHTTPHandlerToolsList(t *testing.T) {
 	if len(list.Tools) == 0 {
 		t.Fatalf("expected at least one tool in tools/list")
 	}
+	foundRestart := false
+	for _, tool := range list.Tools {
+		if tool.Name == "restart_service" {
+			foundRestart = true
+			break
+		}
+	}
+	if !foundRestart {
+		t.Fatalf("expected restart_service in tools/list")
+	}
 }
 
 func TestSPKUploadAndInstall(t *testing.T) {
@@ -444,6 +454,114 @@ func TestFileSHA256AndNormalize(t *testing.T) {
 
 	if got := normalizeSHA256("sha256:" + strings.ToUpper(want)); got != want {
 		t.Fatalf("normalizeSHA256 = %q, want %q", got, want)
+	}
+}
+
+func TestRestartServiceToolRestartsActiveService(t *testing.T) {
+	scriptDir := t.TempDir()
+	scriptPath := filepath.Join(scriptDir, "synosystemctl")
+	script := `#!/bin/sh
+case "$1" in
+  get-active-status)
+    printf 'active\n'
+    ;;
+  restart)
+    printf 'restarted %s\n' "$2"
+    ;;
+  start)
+    echo "unexpected start" >&2
+    exit 42
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	cfg := defaultConfig()
+	cfg.SynosystemctlBin = scriptPath
+	srv := newServer(cfg)
+
+	res, err := srv.restartService(context.Background(), mustJSON(t, map[string]any{
+		"service": "pkg-user-victoriametrics-victoria-metrics.service",
+	}))
+	if err != nil {
+		t.Fatalf("restartService: %v", err)
+	}
+	if res.Service != "pkg-user-victoriametrics-victoria-metrics.service" {
+		t.Fatalf("service = %q", res.Service)
+	}
+	if res.Action != "restart" {
+		t.Fatalf("action = %q, want restart", res.Action)
+	}
+	if res.ActiveStatus != "active" {
+		t.Fatalf("activeStatus = %q, want active", res.ActiveStatus)
+	}
+	if res.StatusCommand.ExitCode != 0 {
+		t.Fatalf("status command exit = %d", res.StatusCommand.ExitCode)
+	}
+	if res.Command.ExitCode != 0 {
+		t.Fatalf("restart command exit = %d", res.Command.ExitCode)
+	}
+	if got, want := res.Command.Args, []string{"restart", "pkg-user-victoriametrics-victoria-metrics.service"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("restart args = %v, want %v", got, want)
+	}
+}
+
+func TestRestartServiceToolStartsInactiveService(t *testing.T) {
+	scriptDir := t.TempDir()
+	scriptPath := filepath.Join(scriptDir, "synosystemctl")
+	script := `#!/bin/sh
+case "$1" in
+  get-active-status)
+    printf 'inactive\n'
+    ;;
+  start)
+    printf 'started %s\n' "$2"
+    ;;
+  restart)
+    echo "unexpected restart" >&2
+    exit 42
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+`
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+
+	cfg := defaultConfig()
+	cfg.SynosystemctlBin = scriptPath
+	srv := newServer(cfg)
+
+	res, err := srv.restartService(context.Background(), mustJSON(t, map[string]any{
+		"service": "pkg-user-victoriametrics-victoria-logs.service",
+	}))
+	if err != nil {
+		t.Fatalf("restartService: %v", err)
+	}
+	if res.Service != "pkg-user-victoriametrics-victoria-logs.service" {
+		t.Fatalf("service = %q", res.Service)
+	}
+	if res.Action != "start" {
+		t.Fatalf("action = %q, want start", res.Action)
+	}
+	if res.ActiveStatus != "inactive" {
+		t.Fatalf("activeStatus = %q, want inactive", res.ActiveStatus)
+	}
+	if res.StatusCommand.ExitCode != 0 {
+		t.Fatalf("status command exit = %d", res.StatusCommand.ExitCode)
+	}
+	if res.Command.ExitCode != 0 {
+		t.Fatalf("start command exit = %d", res.Command.ExitCode)
+	}
+	if got, want := res.Command.Args, []string{"start", "pkg-user-victoriametrics-victoria-logs.service"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("start args = %v, want %v", got, want)
 	}
 }
 
