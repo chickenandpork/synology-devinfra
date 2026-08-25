@@ -133,6 +133,8 @@ func (s *server) httpMux(cfg httpConfig) http.Handler {
 	path := normalizeHTTPPath(cfg.Path)
 	mux.HandleFunc(path, s.observedHTTPHandler(path, true, s.httpHandler(cfg)))
 	mux.HandleFunc(path+"/", s.observedHTTPHandler(path, true, s.httpHandler(cfg)))
+	mux.HandleFunc("/spk-upload", s.observedHTTPHandler("/spk-upload", true, s.uploadSPKHandler()))
+	mux.HandleFunc("/spk-upload/", s.observedHTTPHandler("/spk-upload", true, s.uploadSPKHandler()))
 	mux.HandleFunc("/metrics", s.observedHTTPHandler("/metrics", false, s.metricsHandler()))
 	mux.HandleFunc("/metrics/", s.observedHTTPHandler("/metrics", false, s.metricsHandler()))
 	return mux
@@ -228,6 +230,36 @@ func (s *server) httpHandler(cfg httpConfig) http.HandlerFunc {
 		resp := s.handle(r.Context(), req)
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func (s *server) uploadSPKHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPost, http.MethodPut:
+		default:
+			w.Header().Set("Allow", "POST, PUT")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		path, checksum, size, err := writeUploadedSPK(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(spkUploadResult{
+			Action:         "upload_spk",
+			Source:         "stream",
+			TempFile:       path,
+			ChecksumSHA256: checksum,
+			SizeBytes:      size,
+		}); err != nil {
+			http.Error(w, "failed to encode response", http.StatusInternalServerError)
+			return
+		}
 	}
 }
 
