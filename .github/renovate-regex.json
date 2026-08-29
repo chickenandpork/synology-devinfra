@@ -5,6 +5,16 @@
     "sha256": "sha256:8109f1f39eb17d898cf51e08b41e4eabaaaeb1f584c2f22c1be45b7568fcc512",
     "version": "v2.6.2"
   },
+  "buildbarn-scheduler": {
+    "renovate_datasource": "docker",
+    "renovate_depname": "ghcr.io/buildbarn/bb-scheduler",
+    "version": "20260527T162223Z-c48dcda"
+  },
+  "buildbarn-storage": {
+    "renovate_datasource": "docker",
+    "renovate_depname": "ghcr.io/buildbarn/bb-storage",
+    "version": "20260609T094425Z-10acc76"
+  },
   "mbs": {
     "renovate_datasource": "docker",
     "renovate_depname": "craigbender/cmaas",

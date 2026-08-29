@@ -1,0 +1,23 @@
+#!/bin/sh
+
+case "$1" in
+    start)
+        docker volume ls | grep -e "\\Wbuildbarn-storage-ac$" 2>/dev/null || docker volume create "buildbarn-storage-ac"
+        docker volume ls | grep -e "\\Wbuildbarn-storage-cas$" 2>/dev/null || docker volume create "buildbarn-storage-cas"
+        docker volume ls | grep -e "\\Wbuildbarn-storage-fsac$" 2>/dev/null || docker volume create "buildbarn-storage-fsac"
+        ;;
+    stop)
+        ;;
+    status)
+        /usr/local/bin/docker_inspect "buildbarn-frontend" | grep -q '"Status": "running"' || exit 1
+        /usr/local/bin/docker_inspect "buildbarn-scheduler" | grep -q '"Status": "running"' || exit 1
+        /usr/local/bin/docker_inspect "buildbarn-storage" | grep -q '"Status": "running"' || exit 1
+        ;;
+    log)
+        docker logs "buildbarn-frontend"
+        docker logs "buildbarn-scheduler"
+        docker logs "buildbarn-storage"
+        ;;
+esac
+
+exit 0
