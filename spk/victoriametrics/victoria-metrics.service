@@ -1,0 +1,10 @@
+[Unit]
+Description=VictoriaMetrics single-node
+
+[Service]
+EnvironmentFile=-/var/packages/victoriametrics/shares/victoriametrics/etc/victoria-metrics.conf
+ExecStart=/bin/sh -c 'exec /var/packages/victoriametrics/target/bin/victoria-metrics-prod -httpListenAddr="${VICTORIA_METRICS_HTTP_LISTEN_ADDR}" -storageDataPath="${VICTORIA_METRICS_STORAGE_DATA_PATH}" -retentionPeriod="${VICTORIA_METRICS_RETENTION_PERIOD}" -search.maxConcurrentRequests="${VICTORIA_METRICS_MAX_CONCURRENT_REQUESTS}" -search.maxUniqueTimeseries="${VICTORIA_METRICS_MAX_UNIQUE_TIMESERIES}" >>/var/packages/victoriametrics/var/log/victoria-metrics.log 2>&1'
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=60

@@ -1,0 +1,420 @@
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load("@rules_synology//:defs.bzl", "SPK_REQUIRED_SCRIPTS", "data_share", "info_file", "maintainer", "privilege_config", "protocol_file", "service_config", "systemd_user_unit")
+
+PKG_NAME = "victoriametrics"
+PKG_USER = "sc-victoriametrics"
+PKG_GROUP = "victoriametrics"
+VM_VERSION = "1.150.0"
+VL_VERSION = "1.52.0"
+
+SERVICE_VM = "pkg-user-victoriametrics-victoria-metrics.service"
+SERVICE_VL = "pkg-user-victoriametrics-victoria-logs.service"
+SERVICE_VMAGENT = "pkg-user-victoriametrics-vmagent.service"
+
+info_file(
+    name = "info",
+    package_name = PKG_NAME,
+    arch_strings = ["denverton"],
+    beta = True,
+    description = "Single-node VictoriaMetrics, VictoriaLogs and vmagent for low-overhead observability on Synology DSM 7",
+    displayname = "VictoriaMetrics Observability Stack",
+    maintainer = "//:chickenandpork",
+    os_min_ver = "7.0-1",
+    package_version = "{}-1".format(VM_VERSION),
+    support_conf_folder = True,
+)
+
+service_config(
+    name = "victoriametrics_http",
+    description = "VictoriaMetrics HTTP/query/write",
+    dst_ports = "8428/tcp",
+    mdns_alias_port = 80,
+    web_config_mdns_alias = "victoriametrics",
+    title = "VictoriaMetrics",
+)
+
+service_config(
+    name = "victorialogs_http",
+    description = "VictoriaLogs HTTP/query/write",
+    dst_ports = "9428/tcp",
+    title = "VictoriaLogs",
+)
+
+protocol_file(
+    name = "protocol",
+    package_name = PKG_NAME,
+    service_config = [
+        ":victoriametrics_http",
+        ":victorialogs_http",
+    ],
+)
+
+data_share(
+    name = "datashare",
+    permissions = {
+        PKG_USER: "rw",
+    },
+    sharename = PKG_NAME,
+)
+
+privilege_config(
+    name = "priv",
+    groupname = PKG_GROUP,
+    username = PKG_USER,
+)
+
+systemd_user_unit(
+    name = "systemd",
+)
+
+write_file(
+    name = "resource_file",
+    out = "resource",
+    content = [
+        "{",
+        '  "data-share": {',
+        '    "shares": [',
+        "      {",
+        '        "name": "victoriametrics",',
+        '        "permission": {',
+        '          "rw": [',
+        '            "sc-victoriametrics"',
+        "          ]",
+        "        }",
+        "      }",
+        "    ]",
+        "  },",
+        '  "port-config": {',
+        '    "protocol-file": "conf/victoriametrics.sc"',
+        "  },",
+        '  "systemd-user-unit": {},',
+        '  "web-config": {',
+        '    "nginx-static-config": {',
+        '      "enable": [',
+        "        {",
+        '          "alias": [',
+        '            "victoriametrics.local"',
+        "          ],",
+        '          "ports": [',
+        "            {",
+        '              "port": 80,',
+        '              "protocol": "tcp",',
+        '              "schema": "http"',
+        "            }",
+        "          ],",
+        '          "type": "www"',
+        "        }",
+        "      ]",
+        "    }",
+        "  }",
+        "}",
+        "",
+    ],
+)
+
+write_file(
+    name = "victoriametrics_mdns_alias",
+    out = "rez-victoriametrics_http-mdns-alias.service",
+    content = [
+        '<?xml version="1.0" standalone="no"?><!--*-nxml-*-->',
+        '<!DOCTYPE service-group SYSTEM "avahi-service.dtd">',
+        "",
+        "<service-group>",
+        '  <name replace-wildcards="yes">%h</name>',
+        '  <service>',
+        "    <type>_http._tcp</type>",
+        '    <host-name>victoriametrics.local</host-name>',
+        "    <port>80</port>",
+        "  </service>",
+        "</service-group>",
+        "",
+    ],
+)
+
+pkg_files(
+    name = "default_config",
+    srcs = [
+        ":victoria-logs.conf",
+        ":victoria-metrics.conf",
+        ":vmagent.conf",
+        ":vmagent.yml",
+    ],
+    attributes = pkg_attributes(
+        mode = "0444",
+    ),
+    prefix = "etc/default",
+    visibility = ["//visibility:public"],
+)
+
+pkg_files(
+    name = "package_bins",
+    srcs = [
+        "@victoria_logs_linux_amd64//:victoria-logs-prod",
+        "@victoria_metrics_linux_amd64//:victoria-metrics-prod",
+        "@victoria_metrics_vmutils_linux_amd64//:vmagent-prod",
+    ],
+    attributes = pkg_attributes(
+        mode = "0555",
+    ),
+    prefix = "bin",
+    visibility = ["//visibility:public"],
+)
+
+pkg_tar(
+    name = "package",
+    srcs = [
+        ":default_config",
+        ":package_bins",
+        ":protocol",
+    ],
+    extension = "tgz",
+    package_dir = "/",
+    remap_paths = {
+        "/victoriametrics.sc": "/conf/victoriametrics.sc",
+    },
+)
+
+VIC_REQUIRED_SCRIPTS = [f for f in SPK_REQUIRED_SCRIPTS if f not in ["start_stop_status", "postinst", "postuninst", "preuninst"]]
+
+[copy_file(
+    name = "stub_{}".format(f),
+    src = "@rules_synology//synology:stub_script",
+    out = f,
+) for f in VIC_REQUIRED_SCRIPTS]
+
+write_file(
+    name = "start_stop_status",
+    out = "start-stop-status",
+    content = [
+        "#!/bin/sh",
+        "set -eu",
+        "",
+        "PKGNAME=${SYNOPKG_PKGNAME:-victoriametrics}",
+        "PKG_BASE=/var/packages/${PKGNAME}",
+        "LOG_DIR=${PKG_BASE}/var/log",
+        "SYSTEMCTL=/usr/syno/bin/synosystemctl",
+        "DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket",
+        "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket",
+        "SERVICE_VM=%s" % SERVICE_VM,
+        "SERVICE_VL=%s" % SERVICE_VL,
+        "SERVICE_VMAGENT=%s" % SERVICE_VMAGENT,
+        "",
+        "log() {",
+        "    mkdir -p \"${LOG_DIR}\"",
+        "    printf '%s %s\\n' \"$(date --iso-8601=seconds)\" \"$*\" >> \"${LOG_DIR}/start-stop-status.log\"",
+        "}",
+        "",
+        "run_systemctl() {",
+        "    DBUS_SYSTEM_BUS_ADDRESS=\"${DBUS_SYSTEM_BUS_ADDRESS}\" DBUS_SESSION_BUS_ADDRESS=\"${DBUS_SESSION_BUS_ADDRESS}\" \"${SYSTEMCTL}\" \"$@\"",
+        "}",
+        "",
+        "stop_unit() {",
+        "    log \"stopping $1\"",
+        "    run_systemctl stop \"$1\" || true",
+        "}",
+        "",
+        "status_unit() {",
+        "    printf '%s: ' \"$1\"",
+        "    run_systemctl get-active-status \"$1\"",
+        "}",
+        "",
+        "start_unit() {",
+        "    log \"starting $1\"",
+        "    attempts=0",
+        "    while [ \"$attempts\" -lt 10 ]; do",
+        "        if run_systemctl start \"$1\"; then",
+        "            break",
+        "        fi",
+        "        attempts=$((attempts + 1))",
+        "        sleep 1",
+        "    done",
+        "",
+        "    attempts=0",
+        "    while [ \"$attempts\" -lt 10 ]; do",
+        "        status=\"$(run_systemctl get-active-status \"$1\" 2>/dev/null || true)\"",
+        "        if [ \"${status}\" = active ]; then",
+        "            return 0",
+        "        fi",
+        "        attempts=$((attempts + 1))",
+        "        sleep 1",
+        "    done",
+        "",
+        "    return 1",
+        "}",
+        "",
+        "case \"$1\" in",
+        "    start)",
+        "        start_unit \"${SERVICE_VM}\"",
+        "        start_unit \"${SERVICE_VL}\"",
+        "        start_unit \"${SERVICE_VMAGENT}\"",
+        "        ;;",
+        "    stop)",
+        "        stop_unit \"${SERVICE_VMAGENT}\"",
+        "        stop_unit \"${SERVICE_VL}\"",
+        "        stop_unit \"${SERVICE_VM}\"",
+        "        ;;",
+        "    restart)",
+        "        \"$0\" stop",
+        "        sleep 2",
+        "        \"$0\" start",
+        "        ;;",
+        "    status)",
+        "        status_unit \"${SERVICE_VM}\"",
+        "        status_unit \"${SERVICE_VL}\"",
+        "        status_unit \"${SERVICE_VMAGENT}\"",
+        "        ;;",
+        "    log)",
+        "        echo \"Logs: ${LOG_DIR}/victoria-metrics.log ${LOG_DIR}/victoria-logs.log ${LOG_DIR}/vmagent.log\"",
+        "        ;;",
+        "    *)",
+        "        echo \"Usage: $0 {start|stop|restart|status|log}\" >&2",
+        "        exit 1",
+        "        ;;",
+        "esac",
+        "",
+        "exit 0",
+    ],
+    is_executable = True,
+)
+
+write_file(
+    name = "postinst_script",
+    out = "postinst",
+    content = [
+        "#!/bin/sh",
+        "set -eu",
+        "",
+        "PKGNAME=${SYNOPKG_PKGNAME:-victoriametrics}",
+        "PKG_BASE=/var/packages/${PKGNAME}",
+        "SHARE_DIR=${PKG_BASE}/shares/${PKGNAME}",
+        "ETC_DIR=${SHARE_DIR}/etc",
+        "DATA_DIR=${SHARE_DIR}/data",
+        "LOG_DIR=${PKG_BASE}/var/log",
+        "DEFAULT_DIR=${SYNOPKG_PKGDEST}/etc/default",
+        "",
+        "mkdir -p \"${ETC_DIR}\" \"${DATA_DIR}/victoria-metrics\" \"${DATA_DIR}/victoria-logs\" \"${DATA_DIR}/vmagent\" \"${LOG_DIR}\"",
+        "",
+        "copy_if_missing() {",
+        "    if [ ! -f \"$2\" ] && [ -f \"$1\" ]; then",
+        "        cp \"$1\" \"$2\"",
+        "    fi",
+        "}",
+        "",
+        "copy_if_missing \"${DEFAULT_DIR}/victoria-metrics.conf\" \"${ETC_DIR}/victoria-metrics.conf\"",
+        "copy_if_missing \"${DEFAULT_DIR}/victoria-logs.conf\" \"${ETC_DIR}/victoria-logs.conf\"",
+        "copy_if_missing \"${DEFAULT_DIR}/vmagent.conf\" \"${ETC_DIR}/vmagent.conf\"",
+        "copy_if_missing \"${DEFAULT_DIR}/vmagent.yml\" \"${ETC_DIR}/vmagent.yml\"",
+        "",
+        "chmod 0644 \"${ETC_DIR}\"/victoria-metrics.conf \"${ETC_DIR}\"/victoria-logs.conf \"${ETC_DIR}\"/vmagent.conf \"${ETC_DIR}\"/vmagent.yml 2>/dev/null || true",
+        "chmod 0755 \"${LOG_DIR}\" 2>/dev/null || true",
+        "",
+        "chown -R sc-victoriametrics \"${SHARE_DIR}\" \"${LOG_DIR}\" 2>/dev/null || true",
+        "",
+        "exit 0",
+    ],
+    is_executable = True,
+)
+
+write_file(
+    name = "preuninst_script",
+    out = "preuninst",
+    content = [
+        "#!/bin/sh",
+        "set -eu",
+        "",
+        "SYSTEMCTL=/usr/syno/bin/synosystemctl",
+        "DBUS_SYSTEM_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket",
+        "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/dbus/system_bus_socket",
+        "run_systemctl() {",
+        "    DBUS_SYSTEM_BUS_ADDRESS=\"${DBUS_SYSTEM_BUS_ADDRESS}\" DBUS_SESSION_BUS_ADDRESS=\"${DBUS_SESSION_BUS_ADDRESS}\" \"${SYSTEMCTL}\" \"$@\"",
+        "}",
+        "",
+        "PKGCTL_SERVICE=pkgctl-victoriametrics.service",
+        "SERVICE_VM=%s" % SERVICE_VM,
+        "SERVICE_VL=%s" % SERVICE_VL,
+        "SERVICE_VMAGENT=%s" % SERVICE_VMAGENT,
+        "",
+        "run_systemctl stop \"${SERVICE_VMAGENT}\" || true",
+        "run_systemctl stop \"${SERVICE_VL}\" || true",
+        "run_systemctl stop \"${SERVICE_VM}\" || true",
+        "",
+        "run_systemctl uninstall \"${SERVICE_VMAGENT}\" || true",
+        "run_systemctl uninstall \"${SERVICE_VL}\" || true",
+        "run_systemctl uninstall \"${SERVICE_VM}\" || true",
+        "",
+        "exit 0",
+    ],
+    is_executable = True,
+)
+
+write_file(
+    name = "postuninst_script",
+    out = "postuninst",
+    content = [
+        "#!/bin/sh",
+        "exit 0",
+    ],
+    is_executable = True,
+)
+
+pkg_files(
+    name = "scripts",
+    srcs = [
+        ":postinst_script",
+        ":postuninst_script",
+        ":preuninst_script",
+        ":start_stop_status",
+    ] + [":stub_{}".format(f) for f in VIC_REQUIRED_SCRIPTS],
+    attributes = pkg_attributes(
+        mode = "0755",
+    ),
+    prefix = "scripts",
+)
+
+pkg_files(
+    name = "conf",
+    srcs = [
+        ":priv",
+        ":resource_file",
+        ":victoriametrics_mdns_alias",
+        ":victoria-logs.service",
+        ":victoria-metrics.service",
+        ":vmagent.service",
+    ],
+    attributes = pkg_attributes(
+        mode = "0444",
+    ),
+    prefix = "conf",
+    renames = {
+        "victoria-logs.service": "systemd/{}".format(SERVICE_VL),
+        "victoria-metrics.service": "systemd/{}".format(SERVICE_VM),
+        "vmagent.service": "systemd/{}".format(SERVICE_VMAGENT),
+    },
+    visibility = ["//visibility:public"],
+)
+
+pkg_tar(
+    name = "spk",
+    srcs = [
+        ":conf",
+        ":info",
+        ":package",
+        ":scripts",
+    ],
+    extension = "tar",
+    package_file_name = "{}.spk".format(PKG_NAME),
+    visibility = ["//visibility:public"],
+)
+
+exports_files([
+    "victoria-logs.conf",
+    "victoria-logs.service",
+    "victoria-metrics.conf",
+    "victoria-metrics.service",
+    "vmagent.conf",
+    "vmagent.service",
+    "vmagent.yml",
+])

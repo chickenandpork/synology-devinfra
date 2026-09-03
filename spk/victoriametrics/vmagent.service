@@ -1,0 +1,10 @@
+[Unit]
+Description=vmagent for VictoriaMetrics observability
+
+[Service]
+EnvironmentFile=-/var/packages/victoriametrics/shares/victoriametrics/etc/vmagent.conf
+ExecStart=/bin/sh -c 'exec /var/packages/victoriametrics/target/bin/vmagent-prod -httpListenAddr="${VMAGENT_HTTP_LISTEN_ADDR}" -promscrape.config="${VMAGENT_PROMSCRAPE_CONFIG}" -remoteWrite.url="${VMAGENT_REMOTE_WRITE_URL}" -remoteWrite.tmpDataPath="${VMAGENT_REMOTE_WRITE_TMP_DATA_PATH}" >>/var/packages/victoriametrics/var/log/vmagent.log 2>&1'
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=60

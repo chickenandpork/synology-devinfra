@@ -1,0 +1,10 @@
+[Unit]
+Description=VictoriaLogs single-node
+
+[Service]
+EnvironmentFile=-/var/packages/victoriametrics/shares/victoriametrics/etc/victoria-logs.conf
+ExecStart=/bin/sh -c 'exec /var/packages/victoriametrics/target/bin/victoria-logs-prod -httpListenAddr="${VICTORIA_LOGS_HTTP_LISTEN_ADDR}" -storageDataPath="${VICTORIA_LOGS_STORAGE_DATA_PATH}" -retentionPeriod="${VICTORIA_LOGS_RETENTION_PERIOD}" >>/var/packages/victoriametrics/var/log/victoria-logs.log 2>&1'
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=60
