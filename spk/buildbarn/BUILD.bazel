@@ -1,0 +1,152 @@
+load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template_rule")
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@local_renovate_regex//:json.bzl", "version_json")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load(
+    "@rules_synology//:defs.bzl",
+    "SPK_REQUIRED_SCRIPTS",
+    "docker_compose",
+    "docker_project",
+    "images",
+    "info_file",
+    "privilege_config",
+    "resource_config",
+)
+
+PACKAGE_NAME = "buildbarn"
+FRONTEND_CONTAINER = "buildbarn-frontend"
+STORAGE_CONTAINER = "buildbarn-storage"
+SCHEDULER_CONTAINER = "buildbarn-scheduler"
+
+STORAGE_VOLUME_AC = "buildbarn-storage-ac"
+STORAGE_VOLUME_CAS = "buildbarn-storage-cas"
+STORAGE_VOLUME_FSAC = "buildbarn-storage-fsac"
+
+expand_template_rule(
+    name = "dockercompose",
+    out = "docker-compose.yaml",
+    substitutions = {
+        "{{FRONTEND_CONTAINER}}": FRONTEND_CONTAINER,
+        "{{SCHEDULER_CONTAINER}}": SCHEDULER_CONTAINER,
+        "{{SCHEDULER_IMAGE}}": "ghcr.io/buildbarn/bb-scheduler:{}".format(
+            version_json["buildbarn-scheduler"]["version"],
+        ),
+        "{{STORAGE_IMAGE}}": "ghcr.io/buildbarn/bb-storage:{}".format(
+            version_json["buildbarn-storage"]["version"],
+        ),
+        "{{STORAGE_CONTAINER}}": STORAGE_CONTAINER,
+        "{{STORAGE_VOLUME_AC}}": STORAGE_VOLUME_AC,
+        "{{STORAGE_VOLUME_CAS}}": STORAGE_VOLUME_CAS,
+        "{{STORAGE_VOLUME_FSAC}}": STORAGE_VOLUME_FSAC,
+    },
+    template = ":docker-compose.tpl",
+)
+
+docker_compose(
+    name = "buildbarn_compose",
+    compose = ":dockercompose",
+    path = PACKAGE_NAME,
+    project_name = PACKAGE_NAME,
+)
+
+docker_project(
+    name = "buildbarn_project",
+    projects = [":buildbarn_compose"],
+)
+
+info_file(
+    name = "info",
+    package_name = PACKAGE_NAME,
+    beta = True,
+    description = "Single-node Buildbarn frontend, scheduler, and storage deployment",
+    displayname = "Buildbarn",
+    maintainer = "//:chickenandpork",
+    os_min_ver = "7.0-1",
+    package_version = "0.1.0-1",
+    support_conf_folder = True,
+)
+
+privilege_config(
+    name = "priv",
+    username = "sc-buildbarn",
+)
+
+resource_config(
+    name = "rez",
+    resources = [":buildbarn_project"],
+)
+
+images(
+    name = "icons",
+    src = "@buildbarn_icon//file",
+)
+
+pkg_files(
+    name = "conf",
+    srcs = [
+        ":priv",
+        ":rez",
+    ],
+    attributes = pkg_attributes(mode = "0444"),
+    prefix = "conf",
+    visibility = ["//visibility:public"],
+)
+
+pkg_files(
+    name = "config_files",
+    srcs = [
+        "config/common.libsonnet",
+        "config/frontend.jsonnet",
+        "config/scheduler.jsonnet",
+        "config/storage.jsonnet",
+    ],
+    attributes = pkg_attributes(mode = "0444"),
+    prefix = PACKAGE_NAME + "/config",
+    visibility = ["//visibility:public"],
+)
+
+pkg_tar(
+    name = "config_package",
+    srcs = [":config_files"],
+    extension = "tgz",
+    package_dir = "/",
+)
+
+pkg_tar(
+    name = "package",
+    srcs = [],
+    extension = "tgz",
+    package_dir = "/",
+    deps = [
+        ":buildbarn_project",
+        ":config_package",
+    ],
+)
+
+[copy_file(
+    name = "stub_{}".format(f),
+    src = "@rules_synology//synology:stub_script",
+    out = f,
+) for f in SPK_REQUIRED_SCRIPTS]
+
+pkg_files(
+    name = "scripts",
+    srcs = [":start-stop-status"] + [":stub_{}".format(f) for f in SPK_REQUIRED_SCRIPTS],
+    attributes = pkg_attributes(mode = "0755"),
+    prefix = "scripts",
+)
+
+pkg_tar(
+    name = "buildbarn",
+    srcs = [
+        ":conf",
+        ":icons",
+        ":info",
+        ":package",
+        ":scripts",
+    ],
+    extension = "tar",
+    package_file_name = PACKAGE_NAME + ".spk",
+    visibility = ["//visibility:public"],
+)
