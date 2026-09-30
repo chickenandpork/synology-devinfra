@@ -248,7 +248,7 @@ func TestCheckRuntimeTool(t *testing.T) {
 	srv := newServer(cfg)
 	handler := srv.httpMux(httpConfig{Path: "/mcp"})
 
-	reqBody := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"check_runtime","arguments":{"host":"127.0.0.1","timeout_ms":250,"services":["pkg-user-victoriametrics-victoria-metrics.service"],"ports":[` + strconv.Itoa(port) + `]}}}`
+	reqBody := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"check_runtime","arguments":{"host":"127.0.0.1","timeout_ms":250,"services":["pkg-victoriametrics-victoria-metrics.service"],"ports":[` + strconv.Itoa(port) + `]}}}`
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(reqBody))
 	req.Header.Set("MCP-Protocol-Version", "2025-06-18")
 	rr := httptest.NewRecorder()
@@ -381,7 +381,7 @@ esac
 	srv := newServer(cfg)
 	handler := srv.httpMux(httpConfig{Path: "/mcp"})
 
-	reqBody := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"service_pid","arguments":{"service":"pkg-user-victoriametrics-victoria-metrics.service","previous_pid":` + strconv.Itoa(previousPID) + `}}}`
+	reqBody := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"service_pid","arguments":{"service":"pkg-victoriametrics-victoria-metrics.service","previous_pid":` + strconv.Itoa(previousPID) + `}}}`
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(reqBody))
 	req.Header.Set("MCP-Protocol-Version", "2025-06-18")
 	rr := httptest.NewRecorder()
@@ -486,12 +486,12 @@ esac
 	srv := newServer(cfg)
 
 	res, err := srv.restartService(context.Background(), mustJSON(t, map[string]any{
-		"service": "pkg-user-victoriametrics-victoria-metrics.service",
+		"service": "pkg-victoriametrics-victoria-metrics.service",
 	}))
 	if err != nil {
 		t.Fatalf("restartService: %v", err)
 	}
-	if res.Service != "pkg-user-victoriametrics-victoria-metrics.service" {
+	if res.Service != "pkg-victoriametrics-victoria-metrics.service" {
 		t.Fatalf("service = %q", res.Service)
 	}
 	if res.Action != "restart" {
@@ -506,7 +506,7 @@ esac
 	if res.Command.ExitCode != 0 {
 		t.Fatalf("restart command exit = %d", res.Command.ExitCode)
 	}
-	if got, want := res.Command.Args, []string{"restart", "pkg-user-victoriametrics-victoria-metrics.service"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+	if got, want := res.Command.Args, []string{"restart", "pkg-victoriametrics-victoria-metrics.service"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("restart args = %v, want %v", got, want)
 	}
 }
@@ -540,12 +540,12 @@ esac
 	srv := newServer(cfg)
 
 	res, err := srv.restartService(context.Background(), mustJSON(t, map[string]any{
-		"service": "pkg-user-victoriametrics-victoria-logs.service",
+		"service": "pkg-victoriametrics-victoria-logs.service",
 	}))
 	if err != nil {
 		t.Fatalf("restartService: %v", err)
 	}
-	if res.Service != "pkg-user-victoriametrics-victoria-logs.service" {
+	if res.Service != "pkg-victoriametrics-victoria-logs.service" {
 		t.Fatalf("service = %q", res.Service)
 	}
 	if res.Action != "start" {
@@ -560,7 +560,7 @@ esac
 	if res.Command.ExitCode != 0 {
 		t.Fatalf("start command exit = %d", res.Command.ExitCode)
 	}
-	if got, want := res.Command.Args, []string{"start", "pkg-user-victoriametrics-victoria-logs.service"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+	if got, want := res.Command.Args, []string{"start", "pkg-victoriametrics-victoria-logs.service"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("start args = %v, want %v", got, want)
 	}
 }

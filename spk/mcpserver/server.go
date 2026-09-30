@@ -327,7 +327,7 @@ func (s *server) capabilities() serverCaps {
 }
 
 func serverInstructions() string {
-	return "Use list_packages and package_info to inspect installed SPKs. install_spk accepts a base64 payload, local path, or URL and can verify a SHA-256 digest before install. The HTTP upload endpoint accepts raw SPK bytes and returns the checksum plus temp file path for follow-up install_spk calls. check_runtime verifies Synology service state and TCP listeners. restart_service checks whether a service is active and restarts it if so, otherwise starts it. service_pid reports a service PID and can confirm a previous PID disappeared after restart. remove_package refuses packages whose INFO file disables uninstall."
+	return "Use list_packages and package_info to inspect installed SPKs. For SPK installs over the HTTP server, upload the raw bytes to /spk-upload first, then call install_spk on the returned temp file path. After install, use restart_service to activate the new version. install_spk accepts a base64 payload, local path, or URL and can verify a SHA-256 digest before install. check_runtime verifies Synology service state and TCP listeners. service_pid reports a service PID and can confirm a previous PID disappeared after restart. remove_package refuses packages whose INFO file disables uninstall."
 }
 
 func negotiateVersion(requested string) string {
@@ -341,6 +341,21 @@ func negotiateVersion(requested string) string {
 
 func (s *server) tools() []tool {
 	return []tool{
+		{
+			Name:        "http_healthcheck",
+			Title:       "HTTP health check",
+			Description: "Perform an HTTP GET from the Synology host and return status and response details.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"url":        map[string]any{"type": "string"},
+					"timeout_ms": map[string]any{"type": "integer", "minimum": 1},
+				},
+				"required": []string{"url"},
+			},
+			OutputSchema: map[string]any{"type": "object"},
+			Annotations:  &toolAnnotations{ReadOnlyHint: true, OpenWorldHint: true},
+		},
 		{
 			Name:        "list_packages",
 			Title:       "List installed packages",
@@ -570,6 +585,9 @@ func (s *server) handleToolCall(ctx context.Context, req rpcRequest) rpcResponse
 	case "check_runtime":
 		res, err := s.checkRuntime(ctx, params.Arguments)
 		return record("check_runtime", res, err)
+	case "http_healthcheck":
+		res, err := s.httpHealthcheck(ctx, params.Arguments)
+		return record("http_healthcheck", res, err)
 	case "service_pid":
 		res, err := s.servicePID(ctx, params.Arguments)
 		return record("service_pid", res, err)
@@ -869,6 +887,67 @@ func fileSHA256(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+type httpHealthcheckResult struct {
+	URL        string `json:"url"`
+	StatusCode int    `json:"statusCode"`
+	Healthy    bool   `json:"healthy"`
+	Body       string `json:"body,omitempty"`
+	Error      string `json:"error,omitempty"`
+}
+
+func (s *server) httpHealthcheck(ctx context.Context, args json.RawMessage) (httpHealthcheckResult, error) {
+	var input struct {
+		URL       string `json:"url"`
+		TimeoutMS int    `json:"timeout_ms"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return httpHealthcheckResult{}, err
+	}
+	if input.URL == "" {
+		return httpHealthcheckResult{}, errors.New("url is required")
+	}
+	parsedURL, err := url.Parse(input.URL)
+	if err != nil || parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return httpHealthcheckResult{}, errors.New("url must use http or https")
+	}
+	host, _, err := net.SplitHostPort(parsedURL.Host)
+	if err != nil {
+		host = parsedURL.Hostname()
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !allowedHealthcheckIP(ip) {
+		return httpHealthcheckResult{}, errors.New("healthcheck host must be 127.0.0.1 or an RFC-1918 IPv4 address")
+	}
+	timeout := 15 * time.Second
+	if input.TimeoutMS > 0 {
+		timeout = time.Duration(input.TimeoutMS) * time.Millisecond
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, input.URL, nil)
+	if err != nil {
+		return httpHealthcheckResult{URL: input.URL, Error: err.Error()}, nil
+	}
+	response, err := (&http.Client{Timeout: timeout}).Do(request)
+	if err != nil {
+		return httpHealthcheckResult{URL: input.URL, Error: err.Error()}, nil
+	}
+	defer response.Body.Close()
+	body, readErr := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	result := httpHealthcheckResult{URL: input.URL, StatusCode: response.StatusCode, Healthy: response.StatusCode >= 200 && response.StatusCode < 300, Body: string(body)}
+	if readErr != nil {
+		result.Error = readErr.Error()
+		result.Healthy = false
+	}
+	return result, nil
+}
+
+func allowedHealthcheckIP(ip net.IP) bool {
+	ip = ip.To4()
+	if ip == nil || ip.Equal(net.IPv4(127, 0, 0, 1)) {
+		return ip != nil
+	}
+	return ip[0] == 10 || ip[0] == 192 && ip[1] == 168 || ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31
 }
 
 func (s *server) checkRuntime(ctx context.Context, args json.RawMessage) (runtimeHealthResult, error) {
