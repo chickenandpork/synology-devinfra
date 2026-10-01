@@ -19,5 +19,7 @@ services:
       - {{VOLUME}}:/var/lib/grafana
 
 volumes:
-  # Created by the shared SPK lifecycle helper; never deleted by this package.
-  {{VOLUME}}: {external: true}
+  # DSM runs Compose during installation, before the SPK service-start hook.
+  # A stable name lets Compose create/reuse the volume at that point.
+  {{VOLUME}}:
+    name: {{VOLUME}}

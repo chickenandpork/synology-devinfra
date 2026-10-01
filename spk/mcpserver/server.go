@@ -27,7 +27,7 @@ import (
 
 const (
 	serverName     = "synology-mcpserver"
-	serverVersion  = "0.1.2"
+	serverVersion  = "0.1.5"
 	defaultPkgDir  = "/var/packages"
 	defaultMaxLogs = 200
 )
@@ -42,6 +42,8 @@ var supportedVersions = []string{
 
 type config struct {
 	PackagesDir      string
+	PackageLogsDir   string
+	DockerComposeBin string
 	SynopkgBin       string
 	SynosystemctlBin string
 	JournalctlBin    string
@@ -53,6 +55,8 @@ type config struct {
 func defaultConfig() config {
 	return config{
 		PackagesDir:      envOrDefault("MCP_SYNO_PACKAGES_DIR", defaultPkgDir),
+		PackageLogsDir:   envOrDefault("MCP_SYNO_PACKAGE_LOGS_DIR", "/var/log/packages"),
+		DockerComposeBin: envOrDefault("MCP_SYNO_DOCKER_COMPOSE_BIN", "/var/packages/ContainerManager/target/usr/bin/docker-compose"),
 		SynopkgBin:       envOrDefault("MCP_SYNO_SYNOPKG_BIN", "synopkg"),
 		SynosystemctlBin: envOrDefault("MCP_SYNO_SYNOSYSTEMCTL_BIN", "synosystemctl"),
 		JournalctlBin:    envOrDefault("MCP_SYNO_JOURNALCTL_BIN", "journalctl"),
@@ -342,6 +346,49 @@ func negotiateVersion(requested string) string {
 func (s *server) tools() []tool {
 	return []tool{
 		{
+			Name:        "docker_compose",
+			Title:       "Inspect or pull a package Compose project",
+			Description: "Validate a package's Compose configuration, read its container logs, or pull its images. Does not start or stop containers.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"package": map[string]any{"type": "string"},
+					"project": map[string]any{"type": "string"},
+					"action":  map[string]any{"type": "string", "enum": []string{"config", "logs", "pull"}},
+				},
+				"required": []string{"package", "project", "action"},
+			},
+			Annotations: &toolAnnotations{OpenWorldHint: true},
+		},
+		{
+			Name:        "docker_inspect",
+			Title:       "Inspect Docker object",
+			Description: "Inspect a named Docker volume, image, or container without changing it. Container output excludes environment variables.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"kind": map[string]any{"type": "string", "enum": []string{"volume", "image", "container"}},
+					"name": map[string]any{"type": "string"},
+				},
+				"required": []string{"kind", "name"},
+			},
+			Annotations: &toolAnnotations{ReadOnlyHint: true},
+		},
+		{
+			Name:        "read_package_log",
+			Title:       "Read package log",
+			Description: "Read the last lines of a DSM package log, including installation worker errors.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"package": map[string]any{"type": "string"},
+					"lines":   map[string]any{"type": "integer", "minimum": 1, "maximum": 2000},
+				},
+				"required": []string{"package"},
+			},
+			Annotations: &toolAnnotations{ReadOnlyHint: true},
+		},
+		{
 			Name:        "list_packages",
 			Title:       "List installed packages",
 			Description: "List installed packages discovered from the Synology package directory and parsed INFO metadata.",
@@ -555,6 +602,15 @@ func (s *server) handleToolCall(ctx context.Context, req rpcRequest) rpcResponse
 	}
 
 	switch params.Name {
+	case "docker_compose":
+		res, err := s.dockerCompose(ctx, params.Arguments)
+		return record("docker_compose", res, err)
+	case "docker_inspect":
+		res, err := s.dockerInspect(ctx, params.Arguments)
+		return record("docker_inspect", res, err)
+	case "read_package_log":
+		res, err := s.readPackageLog(ctx, params.Arguments)
+		return record("read_package_log", res, err)
 	case "list_packages":
 		res, err := s.listPackages(params.Arguments)
 		return record("list_packages", res, err)
@@ -658,6 +714,75 @@ func (s *server) packageInfo(args json.RawMessage) (map[string]any, error) {
 		return nil, err
 	}
 	return map[string]any{"package": pkg}, nil
+}
+
+func (s *server) dockerCompose(ctx context.Context, args json.RawMessage) (commandResult, error) {
+	var input struct {
+		Package string `json:"package"`
+		Project string `json:"project"`
+		Action  string `json:"action"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return commandResult{}, err
+	}
+	for _, name := range []string{input.Package, input.Project} {
+		if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\\x00") {
+			return commandResult{}, errors.New("package and project must be names, not paths")
+		}
+	}
+	path := filepath.Join(s.cfg.PackagesDir, input.Package, "target", input.Project, "compose.yaml")
+	cmdArgs := []string{"--file", path}
+	switch input.Action {
+	case "config":
+		cmdArgs = append(cmdArgs, "config", "--quiet")
+	case "logs":
+		cmdArgs = append(cmdArgs, "logs", "--no-color", "--tail", "100")
+	case "pull":
+		cmdArgs = append(cmdArgs, "pull")
+	default:
+		return commandResult{}, errors.New("action must be config, logs, or pull")
+	}
+	return runCommand(ctx, s.cfg.DockerComposeBin, cmdArgs...), nil
+}
+
+func (s *server) dockerInspect(ctx context.Context, args json.RawMessage) (commandResult, error) {
+	var input struct {
+		Kind string `json:"kind"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return commandResult{}, err
+	}
+	formats := map[string]string{
+		"volume":    "{{json .}}",
+		"image":     `{"id":{{json .Id}},"architecture":{{json .Architecture}},"os":{{json .Os}},"digests":{{json .RepoDigests}}}`,
+		"container": `{"state":{{json .State}},"user":{{json .Config.User}},"mounts":{{json .Mounts}}}`,
+	}
+	format, ok := formats[input.Kind]
+	if !ok || input.Name == "" || strings.HasPrefix(input.Name, "-") {
+		return commandResult{}, errors.New("kind must be volume, image, or container and name must be a non-option object name")
+	}
+	return runCommand(ctx, "docker", input.Kind, "inspect", "--format", format, "--", input.Name), nil
+}
+
+func (s *server) readPackageLog(ctx context.Context, args json.RawMessage) (commandResult, error) {
+	var input struct {
+		Package string `json:"package"`
+		Lines   int    `json:"lines"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return commandResult{}, err
+	}
+	if input.Package == "" || input.Package == "." || input.Package == ".." || strings.ContainsAny(input.Package, "/\\\x00") {
+		return commandResult{}, errors.New("package must be a package name, not a path")
+	}
+	if input.Lines == 0 {
+		input.Lines = defaultMaxLogs
+	}
+	if input.Lines < 1 || input.Lines > 2000 {
+		return commandResult{}, errors.New("lines must be between 1 and 2000")
+	}
+	return runCommand(ctx, "tail", "-n", strconv.Itoa(input.Lines), filepath.Join(s.cfg.PackageLogsDir, input.Package+".log")), nil
 }
 
 func (s *server) searchJournal(ctx context.Context, args json.RawMessage) (journalSearchResult, error) {

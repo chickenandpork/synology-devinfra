@@ -15,10 +15,11 @@ available at `http://soko:3000/` after installation. The SPK requests no elevate
 permissions. Credentials are not configured in this package; complete
 Grafana's initial login and password setup in the UI.
 
-The external Docker volume `grafana-oci` preserves the database, dashboards,
-datasources, and installed plugins beneath `/var/lib/grafana` across package
-updates and removal. Back it up before upgrades; this package never deletes
-it. Its storage location follows Container Manager's Docker volume storage.
+The named Docker volume `grafana-oci` stores the database, dashboards,
+datasources, and installed plugins beneath `/var/lib/grafana`. Compose creates
+it during installation and reuses the stable name on updates. Back it up before
+upgrades; explicitly deleting the volume in Container Manager deletes its data.
+Its storage location follows Container Manager's Docker volume storage.
 Configuration uses the image defaults plus the Compose environment, and logs
 go to the container log. No VictoriaMetrics datasource is provisioned.
 

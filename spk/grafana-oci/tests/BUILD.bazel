@@ -1,9 +1,22 @@
-load("@rules_python//python:defs.bzl", "py_test")
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@rules_pkg//pkg:verify_archive.bzl", "verify_archive_test")
+load("@rules_synology//:defs.bzl", "spk_component")
 
-py_test(
-    name = "package_test",
-    size = "small",
-    srcs = ["package_test.py"],
-    args = ["$(location //spk/grafana-oci:grafana-oci)"],
-    data = ["//spk/grafana-oci:grafana-oci"],
+copy_file(
+    name = "spk",
+    src = "//spk/grafana-oci",
+    out = "spk.tar",
+)
+
+spk_component(
+    name = "spk_payload",
+    filename = "package.tgz",
+    spk = ":spk",
+)
+
+verify_archive_test(
+    name = "spk_payload_contains_compose",
+    max_size = 25,
+    must_contain = ["grafana-oci/compose.yaml"],
+    target = ":spk_payload",
 )

@@ -17,6 +17,61 @@ import (
 	"testing"
 )
 
+func TestReadPackageLog(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.PackageLogsDir = t.TempDir()
+	if err := os.WriteFile(filepath.Join(cfg.PackageLogsDir, "example-package.log"), []byte("old\nworker failed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := newServer(cfg)
+	res, err := srv.readPackageLog(context.Background(), json.RawMessage(`{"package":"example-package","lines":1}`))
+	if err != nil || res.ExitCode != 0 || res.Stdout != "worker failed\n" {
+		t.Fatalf("readPackageLog = %+v, %v", res, err)
+	}
+	for _, args := range []string{
+		`{"package":"../messages"}`, `{"package":"/etc/passwd"}`,
+		`{"package":""}`, `{"package":"example-package","lines":-1}`,
+		`{"package":"example-package","lines":2001}`, `{`,
+	} {
+		if _, err := srv.readPackageLog(context.Background(), json.RawMessage(args)); err == nil {
+			t.Errorf("accepted invalid arguments: %s", args)
+		}
+	}
+}
+
+func TestDockerInspect(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cfg := defaultConfig()
+	cfg.DockerComposeBin = filepath.Join(dir, "docker")
+	srv := newServer(cfg)
+	res, err := srv.dockerInspect(context.Background(), json.RawMessage(`{"kind":"volume","name":"example-volume"}`))
+	if err != nil || res.ExitCode != 0 || res.Stdout != "volume\ninspect\n--format\n{{json .}}\n--\nexample-volume\n" {
+		t.Fatalf("dockerInspect = %+v, %v", res, err)
+	}
+	for _, args := range []string{`{"kind":"volume","name":"--help"}`, `{"kind":"rm","name":"example-volume"}`, `{"kind":"image"}`} {
+		if _, err := srv.dockerInspect(context.Background(), json.RawMessage(args)); err == nil {
+			t.Errorf("accepted invalid arguments: %s", args)
+		}
+	}
+	res, err = srv.dockerCompose(context.Background(), json.RawMessage(`{"package":"example-package","project":"example-project","action":"config"}`))
+	if err != nil || res.ExitCode != 0 || res.Stdout != "--file\n/var/packages/example-package/target/example-project/compose.yaml\nconfig\n--quiet\n" {
+		t.Fatalf("dockerCompose = %+v, %v", res, err)
+	}
+	for _, args := range []string{
+		`{"package":"../escape","project":"example-project","action":"config"}`,
+		`{"package":"example-package","project":"..","action":"logs"}`,
+		`{"package":"example-package","project":"example-project","action":"down"}`,
+	} {
+		if _, err := srv.dockerCompose(context.Background(), json.RawMessage(args)); err == nil {
+			t.Errorf("accepted invalid arguments: %s", args)
+		}
+	}
+}
+
 func TestParseInfoFile(t *testing.T) {
 	raw := []byte(`
 # comment

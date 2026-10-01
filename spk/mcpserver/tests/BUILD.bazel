@@ -2,6 +2,7 @@ load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_pkg//pkg:verify_archive.bzl", "verify_archive_test")
+load("@rules_synology//:defs.bzl", "spk_component")
 load("//spk/mcpserver:platform_suffix.bzl", "platform_suffixed_spks")
 
 copy_file(
@@ -17,6 +18,40 @@ platform_suffixed_spks(
     platforms = [
         "@rules_synology//platform:denverton-7.1",
     ],
+)
+
+# Inspect the actual deployment artifact, not the host-configured :spk target.
+spk_component(
+    name = "cross_package",
+    spk = "//spk/mcpserver:mcpserver",
+    filename = "package.tgz",
+)
+
+spk_component(
+    name = "cross_binary",
+    spk = ":cross_package",
+    filename = "bin/mcpserver",
+)
+
+# Follow talospxe's file/diff test, excluding variable Go build IDs and symbols.
+genrule(
+    name = "cross_binary_type",
+    srcs = [":cross_binary"],
+    outs = ["cross-binary-type"],
+    cmd = "file -b $< | cut -d, -f1,2 > $@",
+)
+
+write_file(
+    name = "cross_binary_type_expected",
+    out = "cross-binary-type-expected",
+    content = ["ELF 64-bit LSB executable, x86-64", ""],
+)
+
+diff_test(
+    name = "cross_package_contains_linux_amd64_binary",
+    size = "small",
+    file1 = ":cross_binary_type_expected",
+    file2 = ":cross_binary_type",
 )
 
 genrule(

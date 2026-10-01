@@ -2,7 +2,7 @@ load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template_rule")
 load("@local_renovate_regex//:json.bzl", "version_json")
 load("//lib:dockercompose.bzl", "dockercompose")
 
-PKG_SERIAL = 1
+PKG_SERIAL = 2
 
 CONTAINER_NAME = "grafana-oci"
 
@@ -16,7 +16,6 @@ dockercompose(
     icon_file = "@grafana_icon//file",
     maintainer = "//:chickenandpork",
     package_version = "{}-{}".format(version_json["grafana-oci"]["version"], PKG_SERIAL),
-    preexisting_volumes = [VOLUMENAME],
     project = "grafana-oci",
 )
 

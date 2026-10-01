@@ -30,11 +30,12 @@ go_test(
 info_file(
     name = "info",
     package_name = "mcpserver",
+    arch_strings = ["denverton"],
     description = "Synology MCP server for package inspection and local package operations.",
     displayname = "Synology MCP Server",
     maintainer = "//:chickenandpork",
     os_min_ver = "7.0-1",
-    package_version = "0.1.2-1",
+    package_version = "0.1.5-2",
 )
 
 privilege_config(
