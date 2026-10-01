@@ -117,6 +117,14 @@ http_file(
 
 # an SVG icon requires rules_synology-0.2.3 or later for resize tool
 http_file(
+    name = "grafana_icon",
+    sha256 = "50806d5a65779e79f746398570e0fc322d5de55e19f0be87a275963f0947bb5e",
+    urls = [
+        "https://raw.githubusercontent.com/grafana/grafana/v13.2.3/public/img/grafana_icon.svg",
+    ],
+)
+
+http_file(
     name = "nomad_icon",
     sha256 = "58ba3cd1f0a6e696482e60252c58ac132912582dc6089849936112dfd2ecc862",
     urls = [

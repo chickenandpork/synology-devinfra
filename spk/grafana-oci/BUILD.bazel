@@ -1,0 +1,42 @@
+load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template_rule")
+load("@local_renovate_regex//:json.bzl", "version_json")
+load("//lib:dockercompose.bzl", "dockercompose")
+load("@rules_synology//:defs.bzl", "data_share")
+
+PKG_SERIAL = 3
+
+CONTAINER_NAME = "grafana-oci"
+
+VOLUMENAME = "grafana-oci"
+
+data_share(
+  name = "datashare",
+  sharename = VOLUMENAME,
+  permissions = {
+    "sc-grafana-oci": "rw",
+  },
+)
+
+dockercompose(
+    name = "grafana-oci",
+    compose = ":dockercompose",
+    description = "Grafana OSS dashboards and visualization, managed by Synology Container Manager.",
+    healthcheck_containernames = [CONTAINER_NAME],
+    icon_file = "@grafana_icon//file",
+    maintainer = "//:chickenandpork",
+    package_version = "{}-{}".format(version_json["grafana-oci"]["version"], PKG_SERIAL),
+    project = "grafana-oci",
+    resources = [":datashare"],
+)
+
+expand_template_rule(
+    name = "dockercompose",
+    out = "docker-compose.yaml",
+    substitutions = {
+        "{{CONTAINER_NAME}}": CONTAINER_NAME,
+        "{{DIGEST}}": version_json["grafana-oci"]["sha256"],
+        "{{VERSION}}": version_json["grafana-oci"]["version"],
+        "{{VOLUME}}": VOLUMENAME,
+    },
+    template = ":docker-compose.tpl",
+)

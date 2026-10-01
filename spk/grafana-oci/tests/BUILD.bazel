@@ -1,0 +1,226 @@
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@local_renovate_regex//:json.bzl", "version_json")
+load("@rules_pkg//pkg:verify_archive.bzl", "verify_archive_test")
+load("@rules_synology//:defs.bzl", "spk_component")
+
+copy_file(
+    name = "spk",
+    src = "//spk/grafana-oci",
+    out = "spk.tar",
+)
+
+SCRIPTS = [
+    "preinst",
+    "postinst",
+    "preuninst",
+    "postuninst",
+    "preupgrade",
+    "postupgrade",
+    "start-stop-status",
+]
+
+verify_archive_test(
+    name = "spk_container_contains_registration_and_scripts",
+    max_size = 50,
+    must_contain = [
+        "INFO",
+        "conf/privilege",
+        "conf/resource",
+        "package.tgz",
+    ] + ["scripts/" + script for script in SCRIPTS],
+    target = ":spk",
+)
+
+spk_component(
+    name = "spk_payload",
+    filename = "package.tgz",
+    spk = ":spk",
+)
+
+verify_archive_test(
+    name = "spk_payload_contains_compose",
+    max_size = 25,
+    must_contain = ["grafana-oci/compose.yaml"],
+    target = ":spk_payload",
+)
+
+# Reuse rules_synology's extraction actions so each diff depends only on the
+# packaged component it checks and can be cached and scheduled independently.
+[
+    spk_component(
+        name = "spk_" + name,
+        filename = filename,
+        spk = ":spk",
+    )
+    for name, filename in {
+        "info": "INFO",
+        "privilege": "conf/privilege",
+        "resource": "conf/resource",
+    }.items()
+]
+
+spk_component(
+    name = "spk_compose",
+    filename = "grafana-oci/compose.yaml",
+    spk = ":spk_payload",
+)
+
+genrule(
+    name = "package_identity",
+    srcs = [":spk_info"],
+    outs = ["package-identity"],
+    # Ignore the package revision; the upstream version must match the image.
+    cmd = "grep -E '^(package|version)=' $< | sed -E 's/-[0-9]+\"$$/\"/' > $@",
+)
+
+write_file(
+    name = "package_identity_expected",
+    out = "package-identity.expected",
+    content = [
+        'package="grafana-oci"',
+        'version="{}"'.format(version_json["grafana-oci"]["version"]),
+        "",
+    ],
+)
+
+write_file(
+    name = "privilege_expected",
+    out = "privilege.expected",
+    content = [
+        json.encode_indent(
+            {
+                "defaults": {"run-as": "package"},
+                "groupname": "rules_synology",
+                "username": "sc-grafana-oci",
+            },
+            indent = "  ",
+        ),
+        "",
+    ],
+)
+
+write_file(
+    name = "resource_expected",
+    out = "resource.expected",
+    content = [
+        json.encode_indent(
+            {
+                "data-share": {
+                    "shares": [{
+                        "name": "grafana-oci",
+                        "permission": {"rw": ["sc-grafana-oci"]},
+                    }],
+                },
+                "docker-project": {
+                    "projects": [{
+                        "name": "grafana-oci",
+                        "path": "grafana-oci",
+                    }],
+                },
+            },
+            indent = "  ",
+        ),
+        "",
+    ],
+)
+
+# An independent expectation checks the rendered image pin, UID, port, and
+# persistent named volume, and rejects extra privilege/password settings.
+write_file(
+    name = "compose_expected",
+    out = "compose.expected",
+    content = [
+        "---",
+        "version: '3.6'",
+        "",
+        "services:",
+        "  grafana:",
+        "    container_name: grafana-oci",
+        "    image: grafana/grafana:{}@{}".format(
+            version_json["grafana-oci"]["version"],
+            version_json["grafana-oci"]["sha256"],
+        ),
+        "    # DSM drops quotes around numeric users when generating its Compose file.",
+        "    user: grafana",
+        "    environment:",
+        '      GF_SERVER_HTTP_PORT: "3000"',
+        "      GF_PATHS_DATA: /var/lib/grafana",
+        "      GF_PATHS_PLUGINS: /var/lib/grafana/plugins",
+        "      GF_LOG_MODE: console",
+        "    ports:",
+        '      - "3000:3000"',
+        "    restart: unless-stopped",
+        "    stop_grace_period: 30s",
+        "    volumes:",
+        "      - grafana-oci:/var/lib/grafana",
+        "",
+        "volumes:",
+        "  # DSM runs Compose during installation, before the SPK service-start hook.",
+        "  # A stable name lets Compose create/reuse the volume at that point.",
+        "  grafana-oci:",
+        "    name: grafana-oci",
+        "",
+    ],
+)
+
+[
+    diff_test(
+        name = "diff_" + name + "_test",
+        size = "small",
+        file1 = ":" + name + "_expected",
+        file2 = actual,
+    )
+    for name, actual in {
+        "package_identity": ":package_identity",
+        "privilege": ":spk_privilege",
+        "resource": ":spk_resource",
+        "compose": ":spk_compose",
+    }.items()
+]
+
+# All lifecycle hooks currently share this implementation. Check every packed
+# hook separately to catch destructive volume cleanup in any lifecycle phase.
+write_file(
+    name = "lifecycle_script_expected",
+    out = "lifecycle-script.expected",
+    content = [
+        "#!/bin/sh",
+        "",
+        'case "$1" in',
+        "    start)",
+        "        ;;",
+        "    stop)",
+        "        ;;",
+        "    status)",
+        r'        /usr/local/bin/docker_inspect "grafana-oci" | grep -q "\"Status\": \"running\"" || exit 1',
+        "        ;;",
+        "    log)",
+        '        docker logs "grafana-oci"',
+        "        ;;",
+        "esac",
+        "",
+        "exit 0",
+        "",
+    ],
+)
+
+[
+    spk_component(
+        name = "spk_script_" + script,
+        filename = "scripts/" + script,
+        spk = ":spk",
+    )
+    for script in SCRIPTS
+]
+
+[
+    diff_test(
+        name = "diff_" + script.replace("-", "_") + "_test",
+        size = "small",
+        file1 = ":lifecycle_script_expected",
+        file2 = ":spk_script_" + script,
+    )
+    for script in SCRIPTS
+]

@@ -5,6 +5,12 @@
     "sha256": "sha256:8109f1f39eb17d898cf51e08b41e4eabaaaeb1f584c2f22c1be45b7568fcc512",
     "version": "v2.6.2"
   },
+  "grafana-oci": {
+    "renovate_datasource": "docker",
+    "renovate_depname": "grafana/grafana",
+    "sha256": "sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572",
+    "version": "13.2.3"
+  },
   "mbs": {
     "renovate_datasource": "docker",
     "renovate_depname": "craigbender/cmaas",

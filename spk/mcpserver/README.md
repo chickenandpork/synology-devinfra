@@ -45,7 +45,7 @@ It runs in two modes:
 To send the SPK bytes directly to the server, `POST` or `PUT` the raw file body to:
 
 ```bash
-curl --data-binary @mcpserver-denverton-7.1.spk http://soko.local:8787/spk-upload
+curl --data-binary @mcpserver-denverton-7.1.spk http://<host>:8787/spk-upload
 ```
 
 The response includes a server-side temp file path and a `sha256` checksum. Pass that temp file path to `install_spk` to install the uploaded package.
@@ -54,25 +54,25 @@ The response includes a server-side temp file path and a `sha256` checksum. Pass
 
 Codex can use the HTTP MCP server at the default URL:
 
-`http://soko.local:8787/mcp`
+`http://<host>:8787/mcp`
 
 Add it to `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.synology]
-url = "http://soko.local:8787/mcp"
+url = "http://<host>:8787/mcp"
 ```
 
 Or register it from the Codex CLI:
 
 ```bash
-codex mcp add synology --url http://soko.local:8787/mcp
+codex mcp add synology --url http://<host>:8787/mcp
 ```
 
 ## Metrics
 
 VictoriaMetrics can scrape the Prometheus endpoint at:
 
-`http://soko.local:8787/metrics`
+`http://<host>:8787/metrics`
 
 It exports basic health and activity metrics such as `mcpserver_up`, `mcpserver_start_time_seconds`, `mcpserver_last_activity_seconds`, `mcpserver_http_requests_total`, `mcpserver_rpc_requests_total`, and `mcpserver_tool_calls_total`.
