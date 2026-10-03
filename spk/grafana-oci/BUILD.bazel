@@ -1,12 +1,23 @@
 load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template_rule")
 load("@local_renovate_regex//:json.bzl", "version_json")
 load("//lib:dockercompose.bzl", "dockercompose")
+load("@rules_synology//:defs.bzl", "data_share", "resource_config", "systemd_user_unit")
+
+
 
 PKG_SERIAL = 2
 
 CONTAINER_NAME = "grafana-oci"
 
 VOLUMENAME = "grafana-oci"
+
+data_share(
+  name = "datashare",
+  sharename = VOLUMENAME,
+  permissions = {
+    "sc-grafana-oci": "rw",
+  },
+)
 
 dockercompose(
     name = "grafana-oci",
@@ -17,6 +28,7 @@ dockercompose(
     maintainer = "//:chickenandpork",
     package_version = "{}-{}".format(version_json["grafana-oci"]["version"], PKG_SERIAL),
     project = "grafana-oci",
+    resources = [":datashare"],
 )
 
 expand_template_rule(
