@@ -34,7 +34,7 @@ info_file(
     displayname = "Synology MCP Server",
     maintainer = "//:chickenandpork",
     os_min_ver = "7.0-1",
-    package_version = "0.1.2-1",
+    package_version = "0.1.5-7",
 )
 
 privilege_config(

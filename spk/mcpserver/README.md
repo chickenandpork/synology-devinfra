@@ -12,8 +12,12 @@ It runs in two modes:
 - `list_packages`
 - `package_info`
 - `search_journal`
+- `read_package_log` (package log by default; `source: "installer"` reads the shared DSM installer log; `source: "messages"` reads system worker errors)
+- `inspect_package_path` (bounded directory listings and diagnostic file reads confined to a package area)
+- `docker_inspect`
+- `docker_compose` (configuration validation, logs, and image pulls for package projects; optional `file: "docker-compose.admin.yaml"` inspects DSM's generated configuration)
 - `install_spk`
-- `check_runtime`
+- `check_runtime` (service/TCP checks and optional `http: [{"port": 3000, "path": "/api/health"}]` GET probes)
 - `service_pid`
 - `restart_service`
 - `remove_package`
@@ -21,6 +25,8 @@ It runs in two modes:
 ## Configuration
 
 - `MCP_SYNO_PACKAGES_DIR` defaults to `/var/packages`
+- `MCP_SYNO_PACKAGE_LOGS_DIR` defaults to `/var/log/packages`; shared installer and system logs are read from its parent directory
+- `MCP_SYNO_DOCKER_COMPOSE_BIN` defaults to `/var/packages/ContainerManager/target/usr/bin/docker-compose`
 - `MCP_SYNO_SYNOPKG_BIN` defaults to `synopkg`
 - `MCP_SYNO_SYNOSYSTEMCTL_BIN` defaults to `synosystemctl`
 - `MCP_SYNO_JOURNALCTL_BIN` defaults to `journalctl`

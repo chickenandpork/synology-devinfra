@@ -14,8 +14,252 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
+
+func TestDiagnosticConfig(t *testing.T) {
+	t.Setenv("MCP_SYNO_PACKAGE_LOGS_DIR", "")
+	t.Setenv("MCP_SYNO_DOCKER_COMPOSE_BIN", "")
+	cfg := defaultConfig()
+	if cfg.PackageLogsDir != "/var/log/packages" || cfg.DockerComposeBin != "/var/packages/ContainerManager/target/usr/bin/docker-compose" {
+		t.Fatalf("incorrect diagnostic defaults: %+v", cfg)
+	}
+	t.Setenv("MCP_SYNO_PACKAGE_LOGS_DIR", "/test/log/packages")
+	t.Setenv("MCP_SYNO_DOCKER_COMPOSE_BIN", "/test/bin/docker-compose")
+	cfg = defaultConfig()
+	if cfg.PackageLogsDir != "/test/log/packages" || cfg.DockerComposeBin != "/test/bin/docker-compose" {
+		t.Fatalf("ignored diagnostic overrides: %+v", cfg)
+	}
+}
+
+func TestInspectPackagePathRejectsFIFO(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.PackagesDir = t.TempDir()
+	root := filepath.Join(cfg.PackagesDir, "example", "var")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fifo := filepath.Join(root, "pipe")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := newServer(cfg).inspectPackagePath(json.RawMessage(`{"package":"example","area":"var","path":"pipe"}`))
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+			t.Fatalf("expected rejection of FIFO, got %v", err)
+		}
+	case <-time.After(time.Second):
+		// Unblock a regressed reader so the test does not leave a hanging goroutine.
+		f, err := os.OpenFile(fifo, os.O_RDWR|syscall.O_NONBLOCK, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		<-done
+		t.Fatal("inspection blocked opening a FIFO")
+	}
+}
+
+func TestRuntimeHTTPProbes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/health":
+			w.Write([]byte(`{"database":"ok"}`))
+		case "/redirect":
+			http.Redirect(w, r, "/failed", http.StatusFound)
+		case "/large":
+			w.Write([]byte(strings.Repeat("x", 8192)))
+		default:
+			http.Error(w, "unhealthy", http.StatusServiceUnavailable)
+		}
+	}))
+	defer server.Close()
+	port := server.Listener.Addr().(*net.TCPAddr).Port
+	srv := newServer(defaultConfig())
+	for _, tc := range []struct {
+		path    string
+		status  int
+		healthy bool
+	}{
+		{"/api/health", 200, true}, {"/redirect", 302, true}, {"/failed", 503, false}, {"/large", 200, true},
+	} {
+		args := json.RawMessage(fmt.Sprintf(`{"http":[{"port":%d,"path":%q}]}`, port, tc.path))
+		res, err := srv.checkRuntime(context.Background(), args)
+		if err != nil || len(res.HTTP) != 1 || res.HTTP[0].Status != tc.status || res.Healthy != tc.healthy {
+			t.Fatalf("%s: %+v, %v", tc.path, res, err)
+		}
+		if len(res.HTTP[0].Body) > 4096 {
+			t.Fatal("unbounded HTTP body")
+		}
+		if tc.path == "/api/health" && res.HTTP[0].Body != `{"database":"ok"}` {
+			t.Fatal("missing health body")
+		}
+	}
+	for _, args := range []string{`{"http":[{"port":0,"path":"/"}]}`, `{"http":[{"port":65536,"path":"/"}]}`, `{"http":[{"port":3000,"path":"relative"}]}`} {
+		if _, err := srv.checkRuntime(context.Background(), json.RawMessage(args)); err == nil {
+			t.Errorf("accepted %s", args)
+		}
+	}
+	server.Close()
+	res, err := srv.checkRuntime(context.Background(), json.RawMessage(fmt.Sprintf(`{"http":[{"port":%d,"path":"/"}]}`, port)))
+	if err != nil || res.Healthy || res.HTTP[0].Error == "" {
+		t.Fatalf("unreachable: %+v, %v", res, err)
+	}
+}
+
+func TestInspectPackagePath(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.PackagesDir = t.TempDir()
+	root := filepath.Join(cfg.PackagesDir, "example", "var")
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "worker.log"), []byte(strings.Repeat("a", 65536)+"last"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), filepath.Join(root, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	srv := newServer(cfg)
+	res, err := srv.inspectPackagePath(json.RawMessage(`{"package":"example","area":"var","path":"worker.log"}`))
+	if err != nil || res["truncated"] != true || len(res["text"].(string)) != 65536 || !strings.HasSuffix(res["text"].(string), "last") {
+		t.Fatalf("read = %v, %v", res, err)
+	}
+	res, err = srv.inspectPackagePath(json.RawMessage(`{"package":"example","area":"var"}`))
+	if err != nil || strings.Join(res["entries"].([]string), ",") != "escape,worker.log" {
+		t.Fatalf("list = %v, %v", res, err)
+	}
+	for _, args := range []string{
+		`{"package":"../example","area":"var"}`, `{"package":"example","area":".."}`,
+		`{"package":"example","area":"var","path":"../conf"}`,
+		`{"package":"example","area":"var","path":"/etc/passwd"}`,
+		`{"package":"example","area":"var","path":"escape"}`, `{`,
+	} {
+		if _, err := srv.inspectPackagePath(json.RawMessage(args)); err == nil {
+			t.Errorf("accepted %s", args)
+		}
+	}
+}
+
+func TestInspectPackagePathSymlinkedArea(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.PackagesDir = t.TempDir()
+	pkg := filepath.Join(cfg.PackagesDir, "example")
+	if err := os.Mkdir(pkg, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	area := t.TempDir()
+	if err := os.Symlink(area, filepath.Join(pkg, "var")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(area, "worker.log"), []byte("worker output\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("worker.log", filepath.Join(area, "current.log")); err != nil {
+		t.Fatal(err)
+	}
+	srv := newServer(cfg)
+	res, err := srv.inspectPackagePath(json.RawMessage(`{"package":"example","area":"var","path":"current.log"}`))
+	if err != nil || res["text"] != "worker output\n" {
+		t.Fatalf("read within symlinked area = %v, %v", res, err)
+	}
+	outside := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(outside, []byte("outside the package area"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(area, "outside.log")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := srv.inspectPackagePath(json.RawMessage(`{"package":"example","area":"var","path":"outside.log"}`)); err == nil {
+		t.Fatal("followed symlink outside the package area")
+	}
+}
+
+func TestReadPackageLog(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.PackageLogsDir = filepath.Join(t.TempDir(), "packages")
+	if err := os.Mkdir(cfg.PackageLogsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.PackageLogsDir, "example-package.log"), []byte("old\nworker failed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := newServer(cfg)
+	res, err := srv.readPackageLog(context.Background(), json.RawMessage(`{"package":"example-package","lines":1}`))
+	if err != nil || res.ExitCode != 0 || res.Stdout != "worker failed\n" {
+		t.Fatalf("readPackageLog = %+v, %v", res, err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.PackageLogsDir, "..", "synopkg.log"), []byte("old\ncompose worker failed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err = srv.readPackageLog(context.Background(), json.RawMessage(`{"package":"example-package","source":"installer","lines":1}`))
+	if err != nil || res.ExitCode != 0 || res.Stdout != "compose worker failed\n" {
+		t.Fatalf("read installer log = %+v, %v", res, err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.PackageLogsDir, "..", "messages"), []byte("system worker error\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err = srv.readPackageLog(context.Background(), json.RawMessage(`{"package":"example-package","source":"messages","lines":1}`))
+	if err != nil || res.ExitCode != 0 || res.Stdout != "system worker error\n" {
+		t.Fatalf("read system messages = %+v, %v", res, err)
+	}
+	for _, args := range []string{
+		`{"package":"../messages"}`, `{"package":"/etc/passwd"}`,
+		`{"package":""}`, `{"package":"example-package","lines":-1}`,
+		`{"package":"example-package","lines":2001}`, `{`,
+		`{"package":"example-package","source":"/etc/passwd"}`,
+		`{"package":"../messages","source":"installer"}`,
+	} {
+		if _, err := srv.readPackageLog(context.Background(), json.RawMessage(args)); err == nil {
+			t.Errorf("accepted invalid arguments: %s", args)
+		}
+	}
+}
+
+func TestDockerInspect(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "docker"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	cfg := defaultConfig()
+	cfg.DockerComposeBin = filepath.Join(dir, "docker")
+	srv := newServer(cfg)
+	res, err := srv.dockerInspect(context.Background(), json.RawMessage(`{"kind":"volume","name":"example-volume"}`))
+	if err != nil || res.ExitCode != 0 || res.Stdout != "volume\ninspect\n--format\n{{json .}}\n--\nexample-volume\n" {
+		t.Fatalf("dockerInspect = %+v, %v", res, err)
+	}
+	for _, args := range []string{`{"kind":"volume","name":"--help"}`, `{"kind":"rm","name":"example-volume"}`, `{"kind":"image"}`} {
+		if _, err := srv.dockerInspect(context.Background(), json.RawMessage(args)); err == nil {
+			t.Errorf("accepted invalid arguments: %s", args)
+		}
+	}
+	res, err = srv.dockerCompose(context.Background(), json.RawMessage(`{"package":"example-package","project":"example-project","action":"config"}`))
+	if err != nil || res.ExitCode != 0 || res.Stdout != "--file\n/var/packages/example-package/target/example-project/compose.yaml\nconfig\n--quiet\n" {
+		t.Fatalf("dockerCompose = %+v, %v", res, err)
+	}
+	for _, args := range []string{
+		`{"package":"../escape","project":"example-project","action":"config"}`,
+		`{"package":"example-package","project":"..","action":"logs"}`,
+		`{"package":"example-package","project":"example-project","action":"down"}`,
+		`{"package":"example-package","project":"example-project","action":"config","file":"../secret"}`,
+	} {
+		if _, err := srv.dockerCompose(context.Background(), json.RawMessage(args)); err == nil {
+			t.Errorf("accepted invalid arguments: %s", args)
+		}
+	}
+	res, err = srv.dockerCompose(context.Background(), json.RawMessage(`{"package":"example-package","project":"example-project","action":"config","file":"docker-compose.admin.yaml"}`))
+	if err != nil || res.ExitCode != 0 || res.Stdout != "--file\n/var/packages/example-package/target/example-project/docker-compose.admin.yaml\nconfig\n--quiet\n" {
+		t.Fatalf("admin dockerCompose = %+v, %v", res, err)
+	}
+}
 
 func TestParseInfoFile(t *testing.T) {
 	raw := []byte(`
