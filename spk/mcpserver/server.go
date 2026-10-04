@@ -27,7 +27,7 @@ import (
 
 const (
 	serverName     = "synology-mcpserver"
-	serverVersion  = "0.1.2"
+	serverVersion  = "0.1.5"
 	defaultPkgDir  = "/var/packages"
 	defaultMaxLogs = 200
 )
@@ -42,6 +42,8 @@ var supportedVersions = []string{
 
 type config struct {
 	PackagesDir      string
+	PackageLogsDir   string
+	DockerComposeBin string
 	SynopkgBin       string
 	SynosystemctlBin string
 	JournalctlBin    string
@@ -53,6 +55,8 @@ type config struct {
 func defaultConfig() config {
 	return config{
 		PackagesDir:      envOrDefault("MCP_SYNO_PACKAGES_DIR", defaultPkgDir),
+		PackageLogsDir:   envOrDefault("MCP_SYNO_PACKAGE_LOGS_DIR", "/var/log/packages"),
+		DockerComposeBin: envOrDefault("MCP_SYNO_DOCKER_COMPOSE_BIN", "/var/packages/ContainerManager/target/usr/bin/docker-compose"),
 		SynopkgBin:       envOrDefault("MCP_SYNO_SYNOPKG_BIN", "synopkg"),
 		SynosystemctlBin: envOrDefault("MCP_SYNO_SYNOSYSTEMCTL_BIN", "synosystemctl"),
 		JournalctlBin:    envOrDefault("MCP_SYNO_JOURNALCTL_BIN", "journalctl"),
@@ -246,6 +250,20 @@ type runtimeHealthResult struct {
 	Healthy  bool                  `json:"healthy"`
 	Services []serviceHealthResult `json:"services"`
 	Ports    []portHealthResult    `json:"ports"`
+	HTTP     []httpHealthResult    `json:"http,omitempty"`
+}
+
+type httpProbe struct {
+	Port int    `json:"port"`
+	Path string `json:"path"`
+}
+
+type httpHealthResult struct {
+	URL     string `json:"url"`
+	Healthy bool   `json:"healthy"`
+	Status  int    `json:"status,omitempty"`
+	Body    string `json:"body,omitempty"`
+	Error   string `json:"error,omitempty"`
 }
 
 type commandResult struct {
@@ -342,6 +360,65 @@ func negotiateVersion(requested string) string {
 func (s *server) tools() []tool {
 	return []tool{
 		{
+			Name:        "inspect_package_path",
+			Description: "List a package directory or read the last 64 KiB of a package diagnostic file. Paths are confined to the selected package area.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"package": map[string]any{"type": "string"},
+					"area":    map[string]any{"type": "string", "enum": []string{"target", "etc", "var", "conf", "scripts"}},
+					"path":    map[string]any{"type": "string", "default": "."},
+				},
+				"required": []string{"package", "area"},
+			},
+			Annotations: &toolAnnotations{ReadOnlyHint: true},
+		},
+		{
+			Name:        "docker_compose",
+			Title:       "Inspect or pull a package Compose project",
+			Description: "Validate a package's Compose configuration, read its container logs, or pull its images. Does not start or stop containers.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"package": map[string]any{"type": "string"},
+					"project": map[string]any{"type": "string"},
+					"action":  map[string]any{"type": "string", "enum": []string{"config", "logs", "pull"}},
+					"file":    map[string]any{"type": "string", "enum": []string{"compose.yaml", "docker-compose.admin.yaml"}, "default": "compose.yaml"},
+				},
+				"required": []string{"package", "project", "action"},
+			},
+			Annotations: &toolAnnotations{OpenWorldHint: true},
+		},
+		{
+			Name:        "docker_inspect",
+			Title:       "Inspect Docker object",
+			Description: "Inspect a named Docker volume, image, or container without changing it. Container output excludes environment variables.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"kind": map[string]any{"type": "string", "enum": []string{"volume", "image", "container"}},
+					"name": map[string]any{"type": "string"},
+				},
+				"required": []string{"kind", "name"},
+			},
+			Annotations: &toolAnnotations{ReadOnlyHint: true},
+		},
+		{
+			Name:        "read_package_log",
+			Title:       "Read package log",
+			Description: "Read the last lines of a DSM package log, or shared installer/system messages for worker errors. Shared sources include entries for all packages.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"package": map[string]any{"type": "string"},
+					"lines":   map[string]any{"type": "integer", "minimum": 1, "maximum": 2000},
+					"source":  map[string]any{"type": "string", "enum": []string{"package", "installer", "messages"}, "default": "package"},
+				},
+				"required": []string{"package"},
+			},
+			Annotations: &toolAnnotations{ReadOnlyHint: true},
+		},
+		{
 			Name:        "list_packages",
 			Title:       "List installed packages",
 			Description: "List installed packages discovered from the Synology package directory and parsed INFO metadata.",
@@ -431,7 +508,7 @@ func (s *server) tools() []tool {
 		{
 			Name:        "check_runtime",
 			Title:       "Check runtime health",
-			Description: "Verify Synology service state and TCP listeners for a set of services and ports.",
+			Description: "Verify Synology service state, TCP listeners, and HTTP GET endpoints. HTTP probes return up to 4 KiB of response body and do not follow redirects.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -447,6 +524,13 @@ func (s *server) tools() []tool {
 						"items":       map[string]any{"type": "integer", "minimum": 1},
 						"description": "TCP ports to probe on the host",
 					},
+					"http": map[string]any{"type": "array", "items": map[string]any{
+						"type": "object", "required": []string{"port", "path"},
+						"properties": map[string]any{
+							"port": map[string]any{"type": "integer", "minimum": 1, "maximum": 65535},
+							"path": map[string]any{"type": "string", "description": "Absolute HTTP path on the probe host"},
+						},
+					}},
 				},
 			},
 			OutputSchema: map[string]any{
@@ -456,6 +540,7 @@ func (s *server) tools() []tool {
 					"healthy":  map[string]any{"type": "boolean"},
 					"services": map[string]any{"type": "array"},
 					"ports":    map[string]any{"type": "array"},
+					"http":     map[string]any{"type": "array"},
 				},
 			},
 			Annotations: &toolAnnotations{ReadOnlyHint: true},
@@ -555,6 +640,18 @@ func (s *server) handleToolCall(ctx context.Context, req rpcRequest) rpcResponse
 	}
 
 	switch params.Name {
+	case "docker_compose":
+		res, err := s.dockerCompose(ctx, params.Arguments)
+		return record("docker_compose", res, err)
+	case "inspect_package_path":
+		res, err := s.inspectPackagePath(params.Arguments)
+		return record("inspect_package_path", res, err)
+	case "docker_inspect":
+		res, err := s.dockerInspect(ctx, params.Arguments)
+		return record("docker_inspect", res, err)
+	case "read_package_log":
+		res, err := s.readPackageLog(ctx, params.Arguments)
+		return record("read_package_log", res, err)
 	case "list_packages":
 		res, err := s.listPackages(params.Arguments)
 		return record("list_packages", res, err)
@@ -658,6 +755,166 @@ func (s *server) packageInfo(args json.RawMessage) (map[string]any, error) {
 		return nil, err
 	}
 	return map[string]any{"package": pkg}, nil
+}
+
+func (s *server) dockerCompose(ctx context.Context, args json.RawMessage) (commandResult, error) {
+	var input struct {
+		Package string `json:"package"`
+		Project string `json:"project"`
+		Action  string `json:"action"`
+		File    string `json:"file"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return commandResult{}, err
+	}
+	for _, name := range []string{input.Package, input.Project} {
+		if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\\x00") {
+			return commandResult{}, errors.New("package and project must be names, not paths")
+		}
+	}
+	if input.File == "" {
+		input.File = "compose.yaml"
+	}
+	if input.File != "compose.yaml" && input.File != "docker-compose.admin.yaml" {
+		return commandResult{}, errors.New("file must be compose.yaml or docker-compose.admin.yaml")
+	}
+	path := filepath.Join(s.cfg.PackagesDir, input.Package, "target", input.Project, input.File)
+	cmdArgs := []string{"--file", path}
+	switch input.Action {
+	case "config":
+		cmdArgs = append(cmdArgs, "config", "--quiet")
+	case "logs":
+		cmdArgs = append(cmdArgs, "logs", "--no-color", "--tail", "100")
+	case "pull":
+		cmdArgs = append(cmdArgs, "pull")
+	default:
+		return commandResult{}, errors.New("action must be config, logs, or pull")
+	}
+	return runCommand(ctx, s.cfg.DockerComposeBin, cmdArgs...), nil
+}
+
+func (s *server) dockerInspect(ctx context.Context, args json.RawMessage) (commandResult, error) {
+	var input struct {
+		Kind string `json:"kind"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return commandResult{}, err
+	}
+	formats := map[string]string{
+		"volume":    "{{json .}}",
+		"image":     `{"id":{{json .Id}},"architecture":{{json .Architecture}},"os":{{json .Os}},"digests":{{json .RepoDigests}}}`,
+		"container": `{"state":{{json .State}},"user":{{json .Config.User}},"mounts":{{json .Mounts}}}`,
+	}
+	format, ok := formats[input.Kind]
+	if !ok || input.Name == "" || strings.HasPrefix(input.Name, "-") {
+		return commandResult{}, errors.New("kind must be volume, image, or container and name must be a non-option object name")
+	}
+	return runCommand(ctx, "docker", input.Kind, "inspect", "--format", format, "--", input.Name), nil
+}
+
+func (s *server) inspectPackagePath(args json.RawMessage) (map[string]any, error) {
+	var input struct {
+		Package string `json:"package"`
+		Area    string `json:"area"`
+		Path    string `json:"path"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return nil, err
+	}
+	if input.Package == "" || input.Package == "." || input.Package == ".." || strings.ContainsAny(input.Package, "/\\\x00") {
+		return nil, errors.New("package must be a package name")
+	}
+	switch input.Area {
+	case "target", "etc", "var", "conf", "scripts":
+	default:
+		return nil, errors.New("invalid package area")
+	}
+	if input.Path == "" {
+		input.Path = "."
+	}
+	if filepath.IsAbs(input.Path) || input.Path == ".." || strings.HasPrefix(filepath.Clean(input.Path), "../") {
+		return nil, errors.New("path must stay inside the package area")
+	}
+	// DSM's top-level package areas are symlinks to the volume. Open that area
+	// once, then keep all further resolution confined to it, including symlinks.
+	root, err := os.OpenRoot(filepath.Join(s.cfg.PackagesDir, input.Package, input.Area))
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	// A diagnostic path may be a FIFO. Opening nonblocking lets Stat reject
+	// special files without waiting for a writer before the type check.
+	f, err := root.OpenFile(input.Path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		entries, err := f.ReadDir(201)
+		if err != nil && err != io.EOF {
+			return nil, err
+		}
+		truncated := len(entries) > 200
+		if truncated {
+			entries = entries[:200]
+		}
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		sort.Strings(names)
+		return map[string]any{"entries": names, "truncated": truncated}, nil
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errors.New("not a regular file")
+	}
+	const limit = 64 * 1024
+	if info.Size() > limit {
+		if _, err := f.Seek(-limit, io.SeekEnd); err != nil {
+			return nil, err
+		}
+	}
+	data, err := io.ReadAll(io.LimitReader(f, limit))
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"text": string(data), "truncated": info.Size() > limit}, nil
+}
+
+func (s *server) readPackageLog(ctx context.Context, args json.RawMessage) (commandResult, error) {
+	var input struct {
+		Package string `json:"package"`
+		Lines   int    `json:"lines"`
+		Source  string `json:"source"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return commandResult{}, err
+	}
+	if input.Package == "" || input.Package == "." || input.Package == ".." || strings.ContainsAny(input.Package, "/\\\x00") {
+		return commandResult{}, errors.New("package must be a package name, not a path")
+	}
+	if input.Lines == 0 {
+		input.Lines = defaultMaxLogs
+	}
+	if input.Lines < 1 || input.Lines > 2000 {
+		return commandResult{}, errors.New("lines must be between 1 and 2000")
+	}
+	path := filepath.Join(s.cfg.PackageLogsDir, input.Package+".log")
+	switch input.Source {
+	case "", "package":
+	case "installer":
+		path = filepath.Join(s.cfg.PackageLogsDir, "..", "synopkg.log")
+	case "messages":
+		path = filepath.Join(s.cfg.PackageLogsDir, "..", "messages")
+	default:
+		return commandResult{}, errors.New("source must be package, installer, or messages")
+	}
+	return runCommand(ctx, "tail", "-n", strconv.Itoa(input.Lines), path), nil
 }
 
 func (s *server) searchJournal(ctx context.Context, args json.RawMessage) (journalSearchResult, error) {
@@ -873,16 +1130,22 @@ func fileSHA256(path string) (string, error) {
 
 func (s *server) checkRuntime(ctx context.Context, args json.RawMessage) (runtimeHealthResult, error) {
 	var input struct {
-		Host      string   `json:"host"`
-		TimeoutMS int      `json:"timeout_ms"`
-		Services  []string `json:"services"`
-		Ports     []int    `json:"ports"`
+		Host      string      `json:"host"`
+		TimeoutMS int         `json:"timeout_ms"`
+		Services  []string    `json:"services"`
+		Ports     []int       `json:"ports"`
+		HTTP      []httpProbe `json:"http"`
 	}
 	if err := json.Unmarshal(args, &input); err != nil {
 		return runtimeHealthResult{}, err
 	}
-	if len(input.Services) == 0 && len(input.Ports) == 0 {
-		return runtimeHealthResult{}, errors.New("at least one service or port is required")
+	if len(input.Services) == 0 && len(input.Ports) == 0 && len(input.HTTP) == 0 {
+		return runtimeHealthResult{}, errors.New("at least one service, port, or HTTP probe is required")
+	}
+	for _, probe := range input.HTTP {
+		if probe.Port < 1 || probe.Port > 65535 || !strings.HasPrefix(probe.Path, "/") {
+			return runtimeHealthResult{}, errors.New("HTTP probe requires a port between 1 and 65535 and an absolute path")
+		}
 	}
 
 	host := input.Host
@@ -934,6 +1197,31 @@ func (s *server) checkRuntime(ctx context.Context, args json.RawMessage) (runtim
 		result.Ports = append(result.Ports, portRes)
 	}
 
+	transport := &http.Transport{}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Timeout: timeout, Transport: transport, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}
+	for _, probe := range input.HTTP {
+		u := url.URL{Scheme: "http", Host: net.JoinHostPort(host, strconv.Itoa(probe.Port)), Path: probe.Path}
+		res := httpHealthResult{URL: u.String()}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, res.URL, nil)
+		if err == nil {
+			var response *http.Response
+			response, err = client.Do(req)
+			if err == nil {
+				res.Status = response.StatusCode
+				var body []byte
+				body, err = io.ReadAll(io.LimitReader(response.Body, 4096))
+				response.Body.Close()
+				res.Body = string(body)
+				res.Healthy = err == nil && res.Status >= 200 && res.Status < 400
+			}
+		}
+		if err != nil {
+			res.Error = err.Error()
+		}
+		healthy = healthy && res.Healthy
+		result.HTTP = append(result.HTTP, res)
+	}
 	result.Healthy = healthy
 	return result, nil
 }
