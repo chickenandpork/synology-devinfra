@@ -1,0 +1,21 @@
+[Unit]
+Description=VictoriaMetrics time-series database
+Documentation=https://victoriametrics.com/
+After=network-online.target
+
+[Service]
+Type=simple
+Slice=victoriametrics.slice
+ExecReload=/bin/kill -HUP $MAINPID
+ExecStart=/var/packages/victoriametrics/target/bin/victoria-metrics \
+    -retentionPeriod=1month \
+    -storageDataPath=/var/packages/victoriametrics/shares/victoriametrics/data \
+    -selfStat
+ExecStop=/bin/kill $MAINPID
+KillMode=process
+KillSignal=SIGINT
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

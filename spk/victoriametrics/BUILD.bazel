@@ -1,0 +1,210 @@
+load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
+load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
+load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_filegroup", "pkg_files", "pkg_mkdirs", "strip_prefix")
+load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
+load("@rules_synology//:defs.bzl", "SPK_REQUIRED_SCRIPTS", "data_share", "image", "images", "info_file", "maintainer", "privilege_config", "protocol_file", "resource_config", "service_config", "systemd_user_unit", "usr_local_linker")
+
+#
+# VictoriaMetrics - single binary time-series database
+#
+# VictoriaMetrics is a fast, cost-effective and scalable open source time series
+# database. It is compatible with the Prometheus remote write API and query API,
+# so it can be used as long-term storage for Prometheus or standalone.
+#
+# Single binary deployment: all functionality (ingestion, storage, querying,
+# admin UI) runs in one process with flags like:
+#   -retentionPeriod=1month
+#   -storageDataPath=/data
+#
+# Default ports:
+#   8428 - HTTP API (ingestion at /api/v1/write, query at /api/v1/read)
+#
+info_file(
+    name = "info",
+    package_name = "victoriametrics",
+    arch_strings = ["denverton"],
+    beta = True,
+    description = "Fast, cost-effective and scalable open source time series database. Compatible with Prometheus.",
+    displayname = "VictoriaMetrics",
+    maintainer = "//:chickenandpork",
+    os_min_ver = "7.0-1",  # correct-format=[^\d+(\.\d+){1,2}(-\d+){1,2}$]
+    package_version = "1.142.0-1",
+    support_conf_folder = True,
+)
+
+INNER_SYSTEMD_SERVICE = "pkg-user-victoriametrics.service"
+
+service_config(
+    name = "victoriametrics_http",
+    description = "VictoriaMetrics HTTP API",
+    dst_ports = "8428/tcp",
+    title = "VictoriaMetrics HTTP API",
+)
+
+protocol_file(
+    name = "protocol",
+    package_name = "victoriametrics",
+    service_config = [
+        ":victoriametrics_http",
+    ],
+)
+
+data_share(
+    name = "datashare",
+    permissions = {
+        "victoriametrics": "rw",
+    },
+    sharename = "victoriametrics",
+)
+
+systemd_user_unit(
+    name = "systemd",
+    # TODO: make this create a DefaultInfo() return on the rule that is picked up in
+    # resource_config() to package the unit file
+)
+
+usr_local_linker(
+    name = "linker",
+    bin = ["bin/victoria-metrics"],
+)
+
+resource_config(
+    name = "rez",
+    resources = [
+        ":datashare",
+        ":linker",
+        ":protocol",
+        ":systemd",
+    ],
+)
+
+privilege_config(
+    name = "priv",
+    groupname = "victoriametrics",
+    username = "victoriametrics",
+)
+
+pkg_files(
+    name = "conf",
+    srcs = [
+        ":victoriametrics.service",
+        ":priv",
+        ":rez",
+    ],
+    attributes = pkg_attributes(
+        mode = "0444",
+    ),
+    prefix = "conf",
+    renames = {
+        "victoriametrics.service": "systemd/{}".format(INNER_SYSTEMD_SERVICE),
+    },
+    visibility = ["//visibility:public"],
+)
+
+# Create icon images
+images(
+    name = "icons",
+    src = "@vm_icon//file",
+)
+
+pkg_tar(
+    name = "package",
+    srcs = [
+        ":protocol",
+    ],
+    extension = "tgz",
+    package_dir = "/",
+    deps = [
+        ":package-bin",
+    ],
+)
+
+pkg_tar(
+    name = "package-bin",
+    srcs = select({
+        "@platforms//cpu:arm64": ["@@rules_multitool++multitool+multitool.victoria-metrics.linux_arm64//tools/victoria-metrics:linux_arm64_executable"],
+        "@platforms//cpu:x86_64": ["@@rules_multitool++multitool+multitool.victoria-metrics.linux_x86_64//tools/victoria-metrics:linux_x86_64_executable"],
+        # intentionally no default to catch fenceposting
+    }),
+    extension = "tgz",
+    package_dir = "/bin",
+
+    # Remap victoria-metrics-prod -> victoriametrics
+    remap_paths = {
+        "/linux_x86_64_executable": "/victoria-metrics",
+        "/linux_arm64_executable": "/victoria-metrics",
+    },
+)
+
+# start-stop-status script
+write_file(
+    name = "sss",
+    out = "start-stop-status",
+    content = [
+        "#!/bin/bash",
+        "",
+        """case "$1" in""",
+        "    start)",
+        "            synosystemctl start {}".format(INNER_SYSTEMD_SERVICE),
+        "        ;;",
+        "    stop)",
+        "            synosystemctl stop {}".format(INNER_SYSTEMD_SERVICE),
+        "        ;;",
+        "    status)",
+        "            synosystemctl get-active-status {}".format(INNER_SYSTEMD_SERVICE),
+        "        ;;",
+        "    log)",
+        """        echo "" """,
+        "        ;;",
+        "    preflight)",
+        """            # not reachable via "sudo systemctl preflight victoriametrics""",
+        """            # only via "sudo /var/packages/victoriametrics/scripts/start-stop-status preflight""",
+        "            ( set -x  # FIXME ",
+        "            ls -al /usr/local/lib/systemd/system/pkg-user-victoriametrics.service",
+        "            ls -al /usr/local/lib/systemd/system/pkgctl-victoriametrics.service",
+        "            systemctl list-units | grep pkg-user-victoriametrics.service",
+        "            systemctl list-units | grep pkgctl-victoriametrics.service",
+        "            systemctl list-units | grep victoriametrics.slice",
+        "            )",
+        "        ;;",
+        "    *)",
+        """        echo "Usage: $0 {start|stop|status}" >&2""",
+        "        exit 1",
+        "        ;;",
+        "esac",
+    ],
+)
+
+# Stub out scripts we don't need to customize
+NOMAD_REQUIRED_SCRIPTS = [f for f in SPK_REQUIRED_SCRIPTS if f not in ["start_stop_status"]]
+
+[copy_file(
+    name = "stub_{}".format(f),
+    src = "@rules_synology//synology:stub_script",
+    out = f,
+) for f in NOMAD_REQUIRED_SCRIPTS]
+
+pkg_files(
+    name = "scripts",
+    srcs = [":sss"] + [":stub_{}".format(f) for f in NOMAD_REQUIRED_SCRIPTS],
+    attributes = pkg_attributes(
+        mode = "0755",
+    ),
+    prefix = "scripts",
+)
+
+pkg_tar(
+    name = "spk",
+    srcs = [
+        ":conf",
+        ":icons",
+        ":info",
+        ":package",
+        ":scripts",
+        "@rules_pkg//pkg:verify_archive_test_main.py.tpl",
+    ],
+    extension = "tar",
+    package_file_name = "victoriametrics.spk",
+    visibility = ["//visibility:public"],
+)
