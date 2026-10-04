@@ -1,4 +1,5 @@
 load("@rules_python//python:pip.bzl", "compile_pip_requirements")
+load("@gazelle//:def.bzl", "gazelle")
 load("@rules_synology//:defs.bzl", "maintainer")
 
 maintainer(
@@ -13,4 +14,8 @@ compile_pip_requirements(
     name = "requirements",
     src = "requirements.in",
     requirements_txt = "requirements_lock.txt",
+)
+
+gazelle(
+    name = "gazelle",
 )
