@@ -28,6 +28,7 @@ def dockercompose(
         os_min_ver = "7.0-1",  # correct-format=[^\d+(\.\d+){1,2}(-\d+){1,2}$]
         package_version = "0.0.0-0",
         preexisting_volumes = [],
+        resources = [],
         username = None):
     docker_compose(
         name = "{}~docker_compose".format(name),
@@ -61,7 +62,7 @@ def dockercompose(
 
     resource_config(
         name = "{}~rez".format(name),
-        resources = ["{}~docker_project".format(name)],
+        resources = ["{}~docker_project".format(name)] + resources,
     )
 
     # Logo taken from Jakob's page -- similar to how Jakob's photo is used on the docker image
