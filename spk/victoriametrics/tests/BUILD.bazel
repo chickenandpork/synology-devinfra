@@ -3,6 +3,7 @@ load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_pkg//pkg:verify_archive.bzl", "verify_archive_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 SERVICE_VM = "pkg-victoriametrics-victoria-metrics.service"
 SERVICE_VL = "pkg-victoriametrics-victoria-logs.service"
