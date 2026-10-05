@@ -4,6 +4,7 @@ load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@local_renovate_regex//:json.bzl", "version_json")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
 load("@rules_pkg//pkg/private/tar:tar.bzl", "SUPPORTED_TAR_COMPRESSIONS", "pkg_tar")
+load("@rules_python//python:py_binary.bzl", "py_binary")
 load(
     "@rules_synology//:defs.bzl",
     "SPK_REQUIRED_SCRIPTS",
@@ -244,7 +245,7 @@ genrule(
     name = "extracted_bsdpserver_py",
     srcs = [":package-bin"],
     outs = [
-        "bsdpserver_py.runfiles/_main/spk/talospxe/bsdpserver_py",
+        "extracted_bsdpserver_launcher.py",
     ],
     cmd = "tar xzOf $< bsdpserver_py.runfiles/_main/spk/talospxe/bsdpserver_py > $@",
 )
@@ -317,4 +318,3 @@ pkg_tar(
     package_file_name = "{}.spk".format("talospxe"),
     visibility = ["//visibility:public"],
 )
-
