@@ -19,7 +19,7 @@ bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
 bazel_dep(name = "rules_multitool", version = "1.11.1")
 bazel_dep(name = "rules_pkg", version = "1.3.0")
 bazel_dep(name = "rules_python", version = "1.7.0")  # see below: eclipse transient dep
-bazel_dep(name = "rules_shell", version = "0.7.1")
+bazel_dep(name = "rules_shell", version = "0.8.0")
 bazel_dep(name = "rules_synology", version = "0.2.3")
 
 # Bazel selects the generic C/C++ toolchain which does not declare Xcode’s SDK root; Apple Clang
