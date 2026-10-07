@@ -1,18 +1,13 @@
-load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template_rule")
 load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
-load("@bazel_skylib//rules:write_file.bzl", "write_file")
-load("@local_renovate_regex//:json.bzl", "version_json")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
-load("@rules_pkg//pkg/private/tar:tar.bzl", "SUPPORTED_TAR_COMPRESSIONS", "pkg_tar")
+load("@rules_pkg//pkg/private/tar:tar.bzl", "pkg_tar")
+load("@rules_python//python:py_binary.bzl", "py_binary")
 load(
     "@rules_synology//:defs.bzl",
     "SPK_REQUIRED_SCRIPTS",
     "data_share",
-    "docker_compose",
-    "docker_project",
     "images",
     "info_file",
-    "maintainer",
     "privilege_config",
     "protocol_file",
     "resource_config",
@@ -33,7 +28,6 @@ load(
 # at host level.
 #
 # Synology-7.2 runs on Python-3.8.15, so at least that's within the decade.
-
 
 # check via `bazel query //spk/talospxe:info --output=build`
 info_file(
@@ -78,12 +72,12 @@ protocol_file(
 )
 
 data_share(
-  name = "datashare",
-  sharename = "talospxe",
-  permissions = {
-    "sc-talospxe": "rw",
-    # "otheruser": "ro",
-  },
+    name = "datashare",
+    permissions = {
+        "sc-talospxe": "rw",
+        # "otheruser": "ro",
+    },
+    sharename = "talospxe",
 )
 
 systemd_user_unit(
@@ -108,7 +102,6 @@ privilege_config(
     # run_as_root isn't working: Synology seems to throw a 313 or 319 error whenever I have any valid binaries in the run-as-root.  Need to optimize it over time.
     #run_as_root= [ "postinst", "preuninst"],
 )
-
 
 #https://www.talos.dev/images/logo.svg
 images(
@@ -143,7 +136,7 @@ pkg_files(
         ":pkg-user-bsdp-dnsmasq.service",
         ":pkg-user-bsdp-server.service",
     ],
-    attributes = pkg_attributes( mode = "0550"),
+    attributes = pkg_attributes(mode = "0550"),
     prefix = "conf/systemd",
     visibility = ["//visibility:public"],
 )
@@ -151,7 +144,7 @@ pkg_files(
 pkg_files(
     name = "service-bin",
     srcs = [
-	    "@dnsmasq//file:file",
+        "@dnsmasq//file",
     ],
     attributes = pkg_attributes(
         mode = "0444",
@@ -189,7 +182,7 @@ pkg_tar(
     name = "package",
     srcs = [
         ":conf-in-package",
-	":service-bin",
+        ":service-bin",
         ":service-conf",
     ],
     extension = "tgz",
@@ -244,7 +237,7 @@ genrule(
     name = "extracted_bsdpserver_py",
     srcs = [":package-bin"],
     outs = [
-        "bsdpserver_py.runfiles/_main/spk/talospxe/bsdpserver_py",
+        "extracted_bsdpserver_launcher.py",
     ],
     cmd = "tar xzOf $< bsdpserver_py.runfiles/_main/spk/talospxe/bsdpserver_py > $@",
 )
@@ -264,7 +257,6 @@ genrule(
 pkg_tar(
     name = "package-bin-patched",
     srcs = [":patch_bsdpserver_py_nonhermetic_use_system_python3"],
-    deps = [ ":package-bin" ],
     extension = "tgz",
     include_runfiles = True,
     package_dir = "/bin",
@@ -275,8 +267,8 @@ pkg_tar(
     remap_paths = {
         "/nonhermetic_bsdpserver_py": "/bsdpserver_py.runfiles/_main/spk/talospxe/bsdpserver_py",
     },
+    deps = [":package-bin"],
 )
-
 
 [copy_file(
     name = "stub_{}".format(f),
@@ -317,4 +309,3 @@ pkg_tar(
     package_file_name = "{}.spk".format("talospxe"),
     visibility = ["//visibility:public"],
 )
-

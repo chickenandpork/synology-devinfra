@@ -28,4 +28,3 @@ filegroup(
     output_group = "dnsmasq",
     visibility = ["//visibility:public"],
 )
-

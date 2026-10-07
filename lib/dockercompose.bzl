@@ -1,9 +1,6 @@
-load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template_rule")
-load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
-load("@local_renovate_regex//:json.bzl", "version_json")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
-load("@rules_pkg//pkg/private/tar:tar.bzl", "SUPPORTED_TAR_COMPRESSIONS", "pkg_tar")
+load("@rules_pkg//pkg/private/tar:tar.bzl", "pkg_tar")
 load(
     "@rules_synology//:defs.bzl",
     "docker_compose",

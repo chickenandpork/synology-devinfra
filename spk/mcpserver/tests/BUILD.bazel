@@ -23,14 +23,14 @@ platform_suffixed_spks(
 # Inspect the actual deployment artifact, not the host-configured :spk target.
 spk_component(
     name = "cross_package",
-    spk = "//spk/mcpserver:mcpserver",
     filename = "package.tgz",
+    spk = "//spk/mcpserver:mcpserver",
 )
 
 spk_component(
     name = "cross_binary",
-    spk = ":cross_package",
     filename = "bin/mcpserver",
+    spk = ":cross_package",
 )
 
 # Follow talospxe's file/diff test, excluding variable Go build IDs and symbols.
@@ -44,7 +44,10 @@ genrule(
 write_file(
     name = "cross_binary_type_expected",
     out = "cross-binary-type-expected",
-    content = ["ELF 64-bit LSB executable, x86-64", ""],
+    content = [
+        "ELF 64-bit LSB executable, x86-64",
+        "",
+    ],
 )
 
 diff_test(
