@@ -1,17 +1,17 @@
 load("@bazel_skylib//rules:copy_file.bzl", "copy_file")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
+load("@rules_go//go:def.bzl", "go_binary", "go_test")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
 load("@rules_synology//:defs.bzl", "SPK_REQUIRED_SCRIPTS", "info_file", "maintainer", "privilege_config", "resource_config", "systemd_user_unit")
-load("@rules_go//go:def.bzl", "go_binary", "go_test")
 load(":platform_suffix.bzl", "platform_suffixed_spks")
 
 go_binary(
     name = "mcpserver_bin",
     srcs = [
         "http.go",
-        "metrics.go",
         "main.go",
+        "metrics.go",
         "server.go",
     ],
     visibility = ["//visibility:public"],
@@ -58,7 +58,11 @@ resource_config(
     name = "stub_{}".format(script),
     src = "@rules_synology//synology:stub_script",
     out = script,
-) for script in SPK_REQUIRED_SCRIPTS if script not in ["postinst", "preuninst", "start-stop-status"]]
+) for script in SPK_REQUIRED_SCRIPTS if script not in [
+    "postinst",
+    "preuninst",
+    "start-stop-status",
+]]
 
 write_file(
     name = "start_stop_status",
@@ -182,7 +186,11 @@ pkg_files(
         ":postinst_script",
         ":preuninst_script",
         ":start-stop-status",
-    ] + [":stub_{}".format(script) for script in SPK_REQUIRED_SCRIPTS if script not in ["postinst", "preuninst", "start-stop-status"]],
+    ] + [":stub_{}".format(script) for script in SPK_REQUIRED_SCRIPTS if script not in [
+        "postinst",
+        "preuninst",
+        "start-stop-status",
+    ]],
     attributes = pkg_attributes(
         mode = "0755",
     ),
@@ -213,7 +221,10 @@ pkg_tar(
 
 pkg_files(
     name = "conf",
-    srcs = [":priv", ":rez"],
+    srcs = [
+        ":priv",
+        ":rez",
+    ],
     attributes = pkg_attributes(
         mode = "0444",
     ),
@@ -226,9 +237,9 @@ pkg_tar(
     srcs = [
         ":conf",
         ":info",
-        ":systemd_conf",
         ":package",
         ":scripts",
+        ":systemd_conf",
     ],
     extension = "tar",
     package_file_name = "mcpserver.spk",

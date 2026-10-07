@@ -6,13 +6,11 @@ def _platform_suffix_transition_impl(settings, attr):
         for platform in attr.platforms
     }
 
-
 platform_suffix_transition = transition(
     implementation = _platform_suffix_transition_impl,
     inputs = [],
     outputs = ["//command_line_option:platforms"],
 )
-
 
 def _platform_suffixed_spks_impl(ctx):
     outputs = []
@@ -33,7 +31,6 @@ def _platform_suffixed_spks_impl(ctx):
         outputs.append(out)
 
     return [DefaultInfo(files = depset(outputs))]
-
 
 platform_suffixed_spks = rule(
     implementation = _platform_suffixed_spks_impl,

@@ -6,7 +6,9 @@ module(
 bazel_dep(name = "buildifier_prebuilt", version = "10.1.0", dev_dependency = True)
 
 bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
+
 bazel_dep(name = "apple_support", version = "2.9.1", dev_dependency = True)
+
 bazel_dep(name = "bazel_skylib", version = "1.9.2")
 bazel_dep(name = "gazelle", version = "0.54.0")
 bazel_dep(name = "libxml2", version = "2.15.3")
@@ -30,6 +32,7 @@ apple_cc_configure = use_extension(
     dev_dependency = True,
 )
 use_repo(apple_cc_configure, "local_config_apple_cc_toolchains")
+
 register_toolchains(
     "@local_config_apple_cc_toolchains//:all",
     dev_dependency = True,
@@ -37,9 +40,9 @@ register_toolchains(
 
 archive_override(
     module_name = "rules_synology",
-    integrity = "sha256-Fwf0X/HdIhJSkApFshnLYJUZ6S3vE2gFr7k3ZQMaWWY=",
-    strip_prefix = "rules_synology-b021453ca04e0b19716eaadd9e32e10a06f78d13",
-    urls = ["https://github.com/chickenandpork/rules_synology/archive/b021453ca04e0b19716eaadd9e32e10a06f78d13.tar.gz"],
+    integrity = "sha256-mHPcxWr/vzXV2wINENwLbuM3XmjD4AYPpe5xPD4JlxY=",
+    strip_prefix = "rules_synology-dc77ee5c704861883f9d91a57dbecfdd74f422e9",
+    urls = ["https://github.com/chickenandpork/rules_synology/archive/dc77ee5c704861883f9d91a57dbecfdd74f422e9.tar.gz"],
 )
 
 # Synology-7.2 runs on Python-3.8.15

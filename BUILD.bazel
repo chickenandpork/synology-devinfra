@@ -1,5 +1,5 @@
-load("@rules_python//python:pip.bzl", "compile_pip_requirements")
 load("@gazelle//:def.bzl", "gazelle")
+load("@rules_python//python:pip.bzl", "compile_pip_requirements")
 load("@rules_synology//:defs.bzl", "maintainer")
 
 maintainer(

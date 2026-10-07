@@ -6,8 +6,11 @@ load("@rules_pkg//pkg:verify_archive.bzl", "verify_archive_test")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 SERVICE_VM = "pkg-victoriametrics-victoria-metrics.service"
+
 SERVICE_VL = "pkg-victoriametrics-victoria-logs.service"
+
 SERVICE_VMAGENT = "pkg-victoriametrics-vmagent.service"
+
 SERVICE_AVAHI = "pkg-victoriametrics-avahi.service"
 
 copy_file(
@@ -124,9 +127,9 @@ write_file(
         "",
         "<service-group>",
         '  <name replace-wildcards="yes">%h</name>',
-        '  <service>',
+        "  <service>",
         "    <type>_http._tcp</type>",
-        '    <host-name>victoriametrics.local</host-name>',
+        "    <host-name>victoriametrics.local</host-name>",
         "    <port>80</port>",
         "  </service>",
         "</service-group>",
@@ -143,8 +146,8 @@ sh_test(
         "$(location :extract_resource)",
     ],
     data = [
-        ":resource_expected",
         ":extract_resource",
+        ":resource_expected",
     ],
 )
 
@@ -194,15 +197,15 @@ write_file(
 sh_test(
     name = "validate_avahi",
     srcs = ["validate_avahi.sh"],
-    data = [
-        ":extract_victoriametrics_service",
-        ":avahi_service_dtd",
-        "@libxml2//:xmllint",
-    ],
     args = [
         "$(location :extract_victoriametrics_service)",
         "$(location :avahi_service_dtd)",
         "$(location @libxml2//:xmllint)",
+    ],
+    data = [
+        ":avahi_service_dtd",
+        ":extract_victoriametrics_service",
+        "@libxml2//:xmllint",
     ],
 )
 
@@ -609,7 +612,10 @@ jq(
 write_file(
     name = "privilege_check_expected",
     out = "privilege-check.expected",
-    content = ["true", ""],
+    content = [
+        "true",
+        "",
+    ],
 )
 
 diff_test(

@@ -35,7 +35,6 @@ load(
 #
 # Synology-7.2 runs on Python-3.8.15, so at least that's within the decade.
 
-
 # check via `bazel query //spk/talospxe:info --output=build`
 info_file(
     name = "info",
@@ -79,12 +78,12 @@ protocol_file(
 )
 
 data_share(
-  name = "datashare",
-  sharename = "talospxe",
-  permissions = {
-    "sc-talospxe": "rw",
-    # "otheruser": "ro",
-  },
+    name = "datashare",
+    permissions = {
+        "sc-talospxe": "rw",
+        # "otheruser": "ro",
+    },
+    sharename = "talospxe",
 )
 
 systemd_user_unit(
@@ -109,7 +108,6 @@ privilege_config(
     # run_as_root isn't working: Synology seems to throw a 313 or 319 error whenever I have any valid binaries in the run-as-root.  Need to optimize it over time.
     #run_as_root= [ "postinst", "preuninst"],
 )
-
 
 #https://www.talos.dev/images/logo.svg
 images(
@@ -144,7 +142,7 @@ pkg_files(
         ":pkg-user-bsdp-dnsmasq.service",
         ":pkg-user-bsdp-server.service",
     ],
-    attributes = pkg_attributes( mode = "0550"),
+    attributes = pkg_attributes(mode = "0550"),
     prefix = "conf/systemd",
     visibility = ["//visibility:public"],
 )
@@ -152,7 +150,7 @@ pkg_files(
 pkg_files(
     name = "service-bin",
     srcs = [
-	    "@dnsmasq//file:file",
+        "@dnsmasq//file",
     ],
     attributes = pkg_attributes(
         mode = "0444",
@@ -190,7 +188,7 @@ pkg_tar(
     name = "package",
     srcs = [
         ":conf-in-package",
-	":service-bin",
+        ":service-bin",
         ":service-conf",
     ],
     extension = "tgz",
@@ -265,7 +263,6 @@ genrule(
 pkg_tar(
     name = "package-bin-patched",
     srcs = [":patch_bsdpserver_py_nonhermetic_use_system_python3"],
-    deps = [ ":package-bin" ],
     extension = "tgz",
     include_runfiles = True,
     package_dir = "/bin",
@@ -276,8 +273,8 @@ pkg_tar(
     remap_paths = {
         "/nonhermetic_bsdpserver_py": "/bsdpserver_py.runfiles/_main/spk/talospxe/bsdpserver_py",
     },
+    deps = [":package-bin"],
 )
-
 
 [copy_file(
     name = "stub_{}".format(f),
