@@ -3,7 +3,7 @@ load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_go//go:def.bzl", "go_binary", "go_test")
 load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
 load("@rules_pkg//pkg:tar.bzl", "pkg_tar")
-load("@rules_synology//:defs.bzl", "SPK_REQUIRED_SCRIPTS", "info_file", "maintainer", "privilege_config", "resource_config", "systemd_user_unit")
+load("@rules_synology//:defs.bzl", "SPK_REQUIRED_SCRIPTS", "info_file", "privilege_config", "resource_config", "systemd_user_unit")
 load(":platform_suffix.bzl", "platform_suffixed_spks")
 
 go_binary(
