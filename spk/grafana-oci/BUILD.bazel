@@ -1,6 +1,8 @@
 load("@aspect_bazel_lib//lib:expand_template.bzl", "expand_template_rule")
 load("@local_renovate_regex//:json.bzl", "version_json")
 load("@rules_synology//:defs.bzl", "data_share")
+load("@rules_python//python:py_binary.bzl", "py_binary")
+load("@rules_python//python:py_test.bzl", "py_test")
 load("//lib:dockercompose.bzl", "dockercompose")
 
 PKG_SERIAL = 3
@@ -8,6 +10,16 @@ PKG_SERIAL = 3
 CONTAINER_NAME = "grafana-oci"
 
 VOLUMENAME = "grafana-oci"
+
+py_binary(
+    name = "provision",
+    srcs = ["provision.py"],
+)
+
+py_test(
+    name = "provision_test",
+    srcs = ["provision.py", "provision_test.py"],
+)
 
 data_share(
     name = "datashare",
