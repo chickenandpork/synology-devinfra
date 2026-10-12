@@ -2,8 +2,8 @@
   "bazel-remote-cache": {
     "renovate_datasource": "docker",
     "renovate_depname": "buchgr/bazel-remote-cache",
-    "sha256": "sha256:8109f1f39eb17d898cf51e08b41e4eabaaaeb1f584c2f22c1be45b7568fcc512",
-    "version": "v2.6.2"
+    "sha256": "sha256:adea2ff6dcd59890a1e9c3470e19cf7f2c031502dc0e2d13e12b1dd505762c05",
+    "version": "v2.6.3"
   },
   "grafana-oci": {
     "renovate_datasource": "docker",
