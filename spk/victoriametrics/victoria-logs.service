@@ -10,3 +10,6 @@ Restart=always
 RestartSec=5
 KillSignal=SIGTERM
 TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target
