@@ -36,7 +36,7 @@ info_file(
     displayname = "VictoriaMetrics Observability Stack",
     maintainer = "//:chickenandpork",
     os_min_ver = "7.0-1",
-    package_version = "{}-3".format(VM_VERSION),
+    package_version = "{}-6".format(VM_VERSION),
     support_conf_folder = True,
 )
 
@@ -94,6 +94,9 @@ write_file(
         "",
         "ExecStart=/bin/cp /var/packages/victoriametrics/target/etc/avahi/victoriametrics.service /etc/avahi/services/victoriametrics.service",
         "ExecStop=/bin/rm -f /etc/avahi/services/victoriametrics.service",
+        "",
+        "[Install]",
+        "WantedBy=multi-user.target",
         "",
     ],
 )

@@ -334,6 +334,9 @@ write_file(
         "ExecStart=/bin/cp /var/packages/victoriametrics/target/etc/avahi/victoriametrics.service /etc/avahi/services/victoriametrics.service",
         "ExecStop=/bin/rm -f /etc/avahi/services/victoriametrics.service",
         "",
+        "[Install]",
+        "WantedBy=multi-user.target",
+        "",
     ],
 )
 
@@ -393,6 +396,30 @@ diff_test(
     size = "small",
     file1 = ":postinst_expected",
     file2 = ":extract_postinst",
+)
+
+# pkg-user-* units failed before ExecStart on Soko; package-owned units are the
+# working DSM form and must remain stable while [Install] provides boot startup.
+sh_test(
+    name = "auto_start_test",
+    size = "small",
+    srcs = ["auto_start_test.sh"],
+    args = [
+        "$(location :extract_postinst)",
+        "$(location :spk)",
+        "$(location :extract_victoria_metrics_service)",
+        "$(location :extract_victoria_logs_service)",
+        "$(location :extract_vmagent_service)",
+        "$(location :extract_victoriametrics_avahi_systemd)",
+    ],
+    data = [
+        ":extract_postinst",
+        ":spk",
+        ":extract_victoria_logs_service",
+        ":extract_victoria_metrics_service",
+        ":extract_victoriametrics_avahi_systemd",
+        ":extract_vmagent_service",
+    ],
 )
 
 write_file(
