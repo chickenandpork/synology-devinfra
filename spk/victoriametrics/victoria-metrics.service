@@ -4,7 +4,8 @@ Description=VictoriaMetrics single-node
 [Service]
 User=sc-victoriametrics
 Group=victoriametrics
-EnvironmentFile=-/var/packages/victoriametrics/shares/victoriametrics/etc/victoria-metrics.conf
+EnvironmentFile=/var/packages/victoriametrics/target/etc/default/victoria-metrics.conf
+ExecStartPre=/bin/mkdir -p /var/packages/victoriametrics/shares/victoriametrics/data/victoria-metrics
 ExecStart=/bin/sh -c 'exec /var/packages/victoriametrics/target/bin/victoria-metrics-prod -httpListenAddr="${VICTORIA_METRICS_HTTP_LISTEN_ADDR}" -storageDataPath="${VICTORIA_METRICS_STORAGE_DATA_PATH}" -retentionPeriod="${VICTORIA_METRICS_RETENTION_PERIOD}" -search.maxConcurrentRequests="${VICTORIA_METRICS_MAX_CONCURRENT_REQUESTS}" -search.maxUniqueTimeseries="${VICTORIA_METRICS_MAX_UNIQUE_TIMESERIES}"'
 Restart=always
 RestartSec=5
