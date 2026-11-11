@@ -182,6 +182,65 @@ func TestInspectPackagePathSymlinkedArea(t *testing.T) {
 	}
 }
 
+func TestInspectDataStore(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.PackagesDir = t.TempDir()
+	shares := filepath.Join(cfg.PackagesDir, "example", "shares")
+	if err := os.MkdirAll(filepath.Join(shares, "data", "2026_11"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(shares, "data", "marker"), []byte("ok"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := newServer(cfg).inspectDataStore(mustJSON(t, map[string]any{
+		"package": "example",
+		"paths":   []string{"data", "data/2026_11", "data/missing"},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Healthy || res.Filesystem == nil || len(res.Resources) != 3 {
+		t.Fatalf("unexpected data-store result: %+v", res)
+	}
+	if !res.Resources[0].Exists || res.Resources[0].Type != "directory" {
+		t.Fatalf("directory resource = %+v", res.Resources[0])
+	}
+	if !res.Resources[1].Exists || res.Resources[1].Type != "directory" {
+		t.Fatalf("nested directory resource = %+v", res.Resources[1])
+	}
+	if res.Resources[2].Exists || res.Resources[2].Error == "" {
+		t.Fatalf("missing resource = %+v", res.Resources[2])
+	}
+
+	for _, path := range []string{"../escape", "/etc/passwd", "data/../.."} {
+		got, err := newServer(cfg).inspectDataStore(mustJSON(t, map[string]any{
+			"package": "example",
+			"paths":   []string{path},
+		}))
+		if err != nil || got.Healthy || len(got.Resources) != 1 || got.Resources[0].Error == "" {
+			t.Fatalf("path %q was not reported as unhealthy: %+v, %v", path, got, err)
+		}
+	}
+}
+
+func TestInspectDataStoreRejectsInvalidArguments(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.PackagesDir = t.TempDir()
+	tooMany := make([]string, 101)
+	for i := range tooMany {
+		tooMany[i] = "data"
+	}
+	for _, input := range []any{
+		map[string]any{"package": "../example"},
+		map[string]any{"package": "example", "paths": tooMany},
+	} {
+		if _, err := newServer(cfg).inspectDataStore(mustJSON(t, input)); err == nil {
+			t.Errorf("accepted invalid arguments: %+v", input)
+		}
+	}
+}
+
 func TestReadPackageLog(t *testing.T) {
 	cfg := defaultConfig()
 	cfg.PackageLogsDir = filepath.Join(t.TempDir(), "packages")
