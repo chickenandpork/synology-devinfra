@@ -1,0 +1,38 @@
+# Changelog
+
+## 0.0.1 (2026-11-11)
+
+
+### Features
+
+* convenience function for simple docker-compose ([#15](https://github.com/chickenandpork/synology-devinfra/issues/15)) ([27cc452](https://github.com/chickenandpork/synology-devinfra/commit/27cc4522abee329de5af1254e4fb70309ad0ceba))
+* deliver Containerized MaaS ([0d64034](https://github.com/chickenandpork/synology-devinfra/commit/0d640342063dd59b4c81ec20b596d88326d21317))
+* deliver Containerized MaaS ([86ee55c](https://github.com/chickenandpork/synology-devinfra/commit/86ee55cd8ac34e40b866c9349267c12134d6da80))
+* Deliver Grafana OCI container ([#137](https://github.com/chickenandpork/synology-devinfra/issues/137)) ([8db725a](https://github.com/chickenandpork/synology-devinfra/commit/8db725a8e5374e4940335e2f4a3eb14e5385a874))
+* deploy buchgr bazel-cache ([#10](https://github.com/chickenandpork/synology-devinfra/issues/10)) ([2f2b0d6](https://github.com/chickenandpork/synology-devinfra/commit/2f2b0d604ddf1fcdab972554629eea19cc0c815f))
+* Ensure MCPServer autostarts on reboot ([#160](https://github.com/chickenandpork/synology-devinfra/issues/160)) ([2d8050a](https://github.com/chickenandpork/synology-devinfra/commit/2d8050a37cd8c1cf44a3e284bfa62091308e7f3a))
+* expand MCP Server to allow inspection of data-share resources ([#165](https://github.com/chickenandpork/synology-devinfra/issues/165)) ([2118d1f](https://github.com/chickenandpork/synology-devinfra/commit/2118d1f15adc2c3bc41c584662074c07d85d9750))
+* expand MCPServer: read logs, check paths, healthcheck ([#133](https://github.com/chickenandpork/synology-devinfra/issues/133)) ([8982971](https://github.com/chickenandpork/synology-devinfra/commit/89829718296094de02e3036b0f6c7647ceac1cdc))
+* extend nomad server mdns config ([#43](https://github.com/chickenandpork/synology-devinfra/issues/43)) ([42c7dde](https://github.com/chickenandpork/synology-devinfra/commit/42c7ddead53c1daeffb6b4f07a97d45db7700261))
+* initial Talos PXE on dnsmasq and BSDP server ([#89](https://github.com/chickenandpork/synology-devinfra/issues/89)) ([024fd25](https://github.com/chickenandpork/synology-devinfra/commit/024fd2584d37275247e7aa2368cbb040638b0677))
+* provide consul since independent nomad service-discovery is grossly over-promised ([#50](https://github.com/chickenandpork/synology-devinfra/issues/50)) ([9168f3e](https://github.com/chickenandpork/synology-devinfra/commit/9168f3eb56c91fe9689f205fdbd3104a57d7ad87))
+* provide MCP server for Synology SPK development ([#118](https://github.com/chickenandpork/synology-devinfra/issues/118)) ([fe09d5a](https://github.com/chickenandpork/synology-devinfra/commit/fe09d5a6f601389c488eea2a598f2caddb8543ea))
+* provide single-node nomad server ([#35](https://github.com/chickenandpork/synology-devinfra/issues/35)) ([648bdc2](https://github.com/chickenandpork/synology-devinfra/commit/648bdc2cafe813e19f4526cd2f96e45c25d2b2fd))
+* provide Victoria Metrics single-stack on Synology ([#117](https://github.com/chickenandpork/synology-devinfra/issues/117)) ([f0eea61](https://github.com/chickenandpork/synology-devinfra/commit/f0eea61cb59991588c5d2d0001ec2314a9e3f121))
+* provision tool to setup or recover grafana admin access ([#146](https://github.com/chickenandpork/synology-devinfra/issues/146)) ([80b18f3](https://github.com/chickenandpork/synology-devinfra/commit/80b18f3bf2fa76fad486abe3063ff92e45b761db))
+* use python-3.8.20 got Syno packages ([#130](https://github.com/chickenandpork/synology-devinfra/issues/130)) ([dd8b814](https://github.com/chickenandpork/synology-devinfra/commit/dd8b81473288a3467a78ae74385ef2907ffcd2fa))
+
+
+### Bug Fixes
+
+* Automate more RenovateBot ([#4](https://github.com/chickenandpork/synology-devinfra/issues/4)) ([3d11191](https://github.com/chickenandpork/synology-devinfra/commit/3d11191a9714ca973c4d316247bfd6b8c4bef0ba))
+* correct path of artifacts to release ([#5](https://github.com/chickenandpork/synology-devinfra/issues/5)) ([365b071](https://github.com/chickenandpork/synology-devinfra/commit/365b07122f56cfe432d5e71c733fa316bbcb2fa5))
+* correct sha256 hashes ([#54](https://github.com/chickenandpork/synology-devinfra/issues/54)) ([3b7b3fc](https://github.com/chickenandpork/synology-devinfra/commit/3b7b3fcb4a9cdda451fbaed3cb2c65aa8aff9642))
+* expand consul (tcp/8500 only) to all interfaces ([#52](https://github.com/chickenandpork/synology-devinfra/issues/52)) ([bed5f9f](https://github.com/chickenandpork/synology-devinfra/commit/bed5f9f1133cfd28b7cafad6dc9d503777d208a1))
+* move VictoriaMetrics to journal logging to avoid stale logfile ownerships ([#166](https://github.com/chickenandpork/synology-devinfra/issues/166)) ([f4376ac](https://github.com/chickenandpork/synology-devinfra/commit/f4376acf8a96bef19a4114be3277f04e98c38c98))
+* repair victoriametrics deploy, ensure best-chance for auto-start is not lost again ([#164](https://github.com/chickenandpork/synology-devinfra/issues/164)) ([7339a21](https://github.com/chickenandpork/synology-devinfra/commit/7339a21a7feb8fb6c14123c64ba1f9e5d6856009))
+
+
+### Miscellaneous Chores
+
+* release 0.0.1 ([c31c63a](https://github.com/chickenandpork/synology-devinfra/commit/c31c63af9d7308a94c4c8129493ca2cdcf4b2718))
