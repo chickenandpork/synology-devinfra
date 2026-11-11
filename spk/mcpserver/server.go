@@ -207,6 +207,30 @@ type packageListResult struct {
 	Packages []packageInfo `json:"packages"`
 }
 
+type dataStoreResource struct {
+	Path      string `json:"path"`
+	Exists    bool   `json:"exists"`
+	Type      string `json:"type,omitempty"`
+	Mode      string `json:"mode,omitempty"`
+	SizeBytes int64  `json:"sizeBytes,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+type dataStoreFilesystem struct {
+	TotalBytes     uint64 `json:"totalBytes"`
+	FreeBytes      uint64 `json:"freeBytes"`
+	AvailableBytes uint64 `json:"availableBytes"`
+}
+
+type dataStoreResult struct {
+	Package         string               `json:"package"`
+	Root            string               `json:"root"`
+	Healthy         bool                 `json:"healthy"`
+	Resources       []dataStoreResource  `json:"resources"`
+	Filesystem      *dataStoreFilesystem `json:"filesystem,omitempty"`
+	FilesystemError string               `json:"filesystemError,omitempty"`
+}
+
 type journalSearchResult struct {
 	Entries []map[string]any `json:"entries"`
 	Count   int              `json:"count"`
@@ -459,6 +483,25 @@ func (s *server) tools() []tool {
 			Annotations: &toolAnnotations{ReadOnlyHint: true},
 		},
 		{
+			Name:        "inspect_data_store",
+			Title:       "Inspect package data store",
+			Description: "Inspect package-owned data-store paths under /var/packages/<package>/shares, including existence, type, mode, size, and filesystem capacity. Missing requested paths are returned as structured unhealthy resources.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"package": map[string]any{"type": "string"},
+					"paths": map[string]any{
+						"type": "array", "maxItems": 100,
+						"items":       map[string]any{"type": "string"},
+						"description": "Relative paths beneath the package shares directory; defaults to the data-store root",
+					},
+				},
+				"required": []string{"package"},
+			},
+			OutputSchema: map[string]any{"type": "object"},
+			Annotations:  &toolAnnotations{ReadOnlyHint: true},
+		},
+		{
 			Name:        "install_spk",
 			Title:       "Install SPK",
 			Description: "Install an SPK from a local path, uploaded base64 payload, or URL. An optional SHA-256 digest can be supplied and verified before install. The response is a JSON execution record.",
@@ -661,6 +704,9 @@ func (s *server) handleToolCall(ctx context.Context, req rpcRequest) rpcResponse
 	case "inspect_package_path":
 		res, err := s.inspectPackagePath(params.Arguments)
 		return record("inspect_package_path", res, err)
+	case "inspect_data_store":
+		res, err := s.inspectDataStore(params.Arguments)
+		return record("inspect_data_store", res, err)
 	case "docker_inspect":
 		res, err := s.dockerInspect(ctx, params.Arguments)
 		return record("docker_inspect", res, err)
@@ -902,6 +948,83 @@ func (s *server) inspectPackagePath(args json.RawMessage) (map[string]any, error
 		return nil, err
 	}
 	return map[string]any{"text": string(data), "truncated": info.Size() > limit}, nil
+}
+
+func (s *server) inspectDataStore(args json.RawMessage) (dataStoreResult, error) {
+	var input struct {
+		Package string   `json:"package"`
+		Paths   []string `json:"paths"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return dataStoreResult{}, err
+	}
+	if input.Package == "" || input.Package == "." || input.Package == ".." || strings.ContainsAny(input.Package, "/\\\x00") {
+		return dataStoreResult{}, errors.New("package must be a package name")
+	}
+	if len(input.Paths) == 0 {
+		input.Paths = []string{"."}
+	}
+	if len(input.Paths) > 100 {
+		return dataStoreResult{}, errors.New("paths must contain at most 100 entries")
+	}
+
+	rootPath := filepath.Join(s.cfg.PackagesDir, input.Package, "shares")
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return dataStoreResult{Package: input.Package, Root: rootPath, Healthy: false, Resources: []dataStoreResource{{Path: ".", Error: err.Error()}}}, nil
+	}
+	defer root.Close()
+
+	result := dataStoreResult{Package: input.Package, Root: rootPath, Healthy: true}
+	for _, path := range input.Paths {
+		resource := dataStoreResource{Path: path}
+		if path == "" {
+			resource.Error = "path must not be empty"
+		} else if filepath.IsAbs(path) || filepath.Clean(path) == ".." || strings.HasPrefix(filepath.Clean(path), "../") || strings.Contains(path, "\x00") {
+			resource.Error = "path must stay inside the package shares directory"
+		} else {
+			f, openErr := root.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+			if openErr != nil {
+				resource.Error = openErr.Error()
+			} else {
+				info, statErr := f.Stat()
+				_ = f.Close()
+				if statErr != nil {
+					resource.Error = statErr.Error()
+				} else {
+					resource.Exists = true
+					resource.Mode = info.Mode().String()
+					resource.SizeBytes = info.Size()
+					switch {
+					case info.IsDir():
+						resource.Type = "directory"
+					case info.Mode().IsRegular():
+						resource.Type = "file"
+					default:
+						resource.Type = info.Mode().String()
+					}
+				}
+			}
+		}
+		if resource.Error != "" || !resource.Exists {
+			result.Healthy = false
+		}
+		result.Resources = append(result.Resources, resource)
+	}
+
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(rootPath, &stat); err != nil {
+		result.FilesystemError = err.Error()
+		result.Healthy = false
+	} else {
+		blockSize := uint64(stat.Bsize)
+		result.Filesystem = &dataStoreFilesystem{
+			TotalBytes:     uint64(stat.Blocks) * blockSize,
+			FreeBytes:      uint64(stat.Bfree) * blockSize,
+			AvailableBytes: uint64(stat.Bavail) * blockSize,
+		}
+	}
+	return result, nil
 }
 
 func (s *server) readPackageLog(ctx context.Context, args json.RawMessage) (commandResult, error) {
