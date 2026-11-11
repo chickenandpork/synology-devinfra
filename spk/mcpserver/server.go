@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -229,6 +230,12 @@ type dataStoreResult struct {
 	Resources       []dataStoreResource  `json:"resources"`
 	Filesystem      *dataStoreFilesystem `json:"filesystem,omitempty"`
 	FilesystemError string               `json:"filesystemError,omitempty"`
+}
+
+type dataStoreRepairResult struct {
+	Package    string          `json:"package"`
+	Created    []string        `json:"created"`
+	Inspection dataStoreResult `json:"inspection"`
 }
 
 type journalSearchResult struct {
@@ -502,6 +509,21 @@ func (s *server) tools() []tool {
 			Annotations:  &toolAnnotations{ReadOnlyHint: true},
 		},
 		{
+			Name:        "ensure_data_store",
+			Title:       "Ensure package data store",
+			Description: "Create requested package-owned data-store directories under /var/packages/<package>/shares, then inspect them. Only relative directory paths are accepted.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"package": map[string]any{"type": "string"},
+					"paths":   map[string]any{"type": "array", "maxItems": 100, "items": map[string]any{"type": "string"}},
+				},
+				"required": []string{"package", "paths"},
+			},
+			OutputSchema: map[string]any{"type": "object"},
+			Annotations:  &toolAnnotations{DestructiveHint: true},
+		},
+		{
 			Name:        "install_spk",
 			Title:       "Install SPK",
 			Description: "Install an SPK from a local path, uploaded base64 payload, or URL. An optional SHA-256 digest can be supplied and verified before install. The response is a JSON execution record.",
@@ -626,6 +648,21 @@ func (s *server) tools() []tool {
 			Annotations: &toolAnnotations{DestructiveHint: true},
 		},
 		{
+			Name:        "package_lifecycle",
+			Title:       "Control package lifecycle",
+			Description: "Start, stop, restart, or read status for one installed Synology package through its package lifecycle script.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"package": map[string]any{"type": "string"},
+					"action":  map[string]any{"type": "string", "enum": []string{"start", "stop", "restart", "status"}},
+				},
+				"required": []string{"package", "action"},
+			},
+			OutputSchema: map[string]any{"type": "object"},
+			Annotations:  &toolAnnotations{DestructiveHint: true},
+		},
+		{
 			Name:        "search_journal",
 			Title:       "Search journal logs",
 			Description: "Query journalctl output and return structured JSON entries.",
@@ -707,6 +744,9 @@ func (s *server) handleToolCall(ctx context.Context, req rpcRequest) rpcResponse
 	case "inspect_data_store":
 		res, err := s.inspectDataStore(params.Arguments)
 		return record("inspect_data_store", res, err)
+	case "ensure_data_store":
+		res, err := s.ensureDataStore(params.Arguments)
+		return record("ensure_data_store", res, err)
 	case "docker_inspect":
 		res, err := s.dockerInspect(ctx, params.Arguments)
 		return record("docker_inspect", res, err)
@@ -737,6 +777,9 @@ func (s *server) handleToolCall(ctx context.Context, req rpcRequest) rpcResponse
 	case "restart_service":
 		res, err := s.restartService(ctx, params.Arguments)
 		return record("restart_service", res, err)
+	case "package_lifecycle":
+		res, err := s.packageLifecycle(ctx, params.Arguments)
+		return record("package_lifecycle", res, err)
 	case "remove_package":
 		res, err := s.removePackage(ctx, params.Arguments)
 		return record("remove_package", res, err)
@@ -746,6 +789,74 @@ func (s *server) handleToolCall(ctx context.Context, req rpcRequest) rpcResponse
 		}
 		return rpcResponse{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "unknown tool"}}
 	}
+}
+
+func (s *server) ensureDataStore(args json.RawMessage) (dataStoreRepairResult, error) {
+	var input struct {
+		Package string   `json:"package"`
+		Paths   []string `json:"paths"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return dataStoreRepairResult{}, err
+	}
+	if input.Package == "" || input.Package == "." || input.Package == ".." || strings.ContainsAny(input.Package, "/\\\x00") {
+		return dataStoreRepairResult{}, errors.New("package must be a package name")
+	}
+	if len(input.Paths) == 0 || len(input.Paths) > 100 {
+		return dataStoreRepairResult{}, errors.New("paths must contain between 1 and 100 entries")
+	}
+	rootPath := filepath.Join(s.cfg.PackagesDir, input.Package, "shares")
+	created := make([]string, 0, len(input.Paths))
+	for _, path := range input.Paths {
+		clean := filepath.Clean(path)
+		if path == "" || filepath.IsAbs(path) || clean == ".." || strings.HasPrefix(clean, "../") || strings.Contains(path, "\x00") {
+			return dataStoreRepairResult{}, errors.New("paths must stay inside the package shares directory")
+		}
+		if err := os.MkdirAll(filepath.Join(rootPath, clean), 0o755); err != nil {
+			return dataStoreRepairResult{}, err
+		}
+		if pkgUser, lookupErr := user.Lookup("sc-" + input.Package); lookupErr == nil {
+			uid, uidErr := strconv.Atoi(pkgUser.Uid)
+			gid := -1
+			if pkgGroup, groupErr := user.LookupGroup(input.Package); groupErr == nil {
+				gid, _ = strconv.Atoi(pkgGroup.Gid)
+			}
+			if uidErr == nil {
+				if err := os.Chown(filepath.Join(rootPath, clean), uid, gid); err != nil {
+					return dataStoreRepairResult{}, err
+				}
+			}
+		}
+		created = append(created, clean)
+	}
+	inspectionArgs, err := json.Marshal(map[string]any{"package": input.Package, "paths": input.Paths})
+	if err != nil {
+		return dataStoreRepairResult{}, err
+	}
+	inspection, err := s.inspectDataStore(inspectionArgs)
+	if err != nil {
+		return dataStoreRepairResult{}, err
+	}
+	return dataStoreRepairResult{Package: input.Package, Created: created, Inspection: inspection}, nil
+}
+
+func (s *server) packageLifecycle(ctx context.Context, args json.RawMessage) (commandResult, error) {
+	var input struct {
+		Package string `json:"package"`
+		Action  string `json:"action"`
+	}
+	if err := json.Unmarshal(args, &input); err != nil {
+		return commandResult{}, err
+	}
+	if input.Package == "" || input.Package == "." || input.Package == ".." || strings.ContainsAny(input.Package, "/\\\x00") {
+		return commandResult{}, errors.New("package must be a package name")
+	}
+	switch input.Action {
+	case "start", "stop", "restart", "status":
+	default:
+		return commandResult{}, errors.New("action must be start, stop, restart, or status")
+	}
+	return runCommand(ctx, s.cfg.SynopkgBin, input.Action, input.Package), nil
 }
 
 func (s *server) toolResponse(id json.RawMessage, result any, err error) rpcResponse {
