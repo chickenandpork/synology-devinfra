@@ -161,9 +161,9 @@ http_file(
 
 http_file(
     name = "talos_icon",
-    sha256 = "2ce46a4ae697a932bd6224446b5a810c107d8f7efa4141013a7be32ded754d88",
+    sha256 = "0eb3a276cb7d08ea05709f12182db723d8a879e99c854744cb730deb0bb9e6e7",
     urls = [
-        "https://www.talos.dev/img/sidero-logo.svg",
+        "https://images.g2crowd.com/uploads/product/image/bc1715f3198451a40b6a957d4eb41a0d/talos-os.png",
     ],
 )
 
