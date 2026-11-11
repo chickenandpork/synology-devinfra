@@ -135,7 +135,7 @@ http_file(
 
 http_file(
     name = "maas_icon",
-    sha256 = "db55a612a931a90f4a212e684b4a122e18d61c1e79cbcf26f022577bd464f5b2",
+    sha256 = "5fbfd2b92460b813f75c8a2c2c187c5f8a6eb3958935eb0cbd26f8c44c14735f",
     urls = [
         "https://images.squarespace-cdn.com/content/v1/500a3673c4aa9263a8955641/1551919834344-GX7V5SG9ZDQ1E7XU6JKV/maas-logo.png",
         "https://dashboard.snapcraft.io/site_media/appmedia/2019/10/maas-snap.png",
@@ -161,9 +161,9 @@ http_file(
 
 http_file(
     name = "talos_icon",
-    sha256 = "2ce46a4ae697a932bd6224446b5a810c107d8f7efa4141013a7be32ded754d88",
+    sha256 = "0eb3a276cb7d08ea05709f12182db723d8a879e99c854744cb730deb0bb9e6e7",
     urls = [
-        "https://www.talos.dev/img/sidero-logo.svg",
+        "https://images.g2crowd.com/uploads/product/image/bc1715f3198451a40b6a957d4eb41a0d/talos-os.png",
     ],
 )
 
