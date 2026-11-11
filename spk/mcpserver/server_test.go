@@ -212,6 +212,13 @@ func TestInspectDataStore(t *testing.T) {
 	if res.Resources[2].Exists || res.Resources[2].Error == "" {
 		t.Fatalf("missing resource = %+v", res.Resources[2])
 	}
+	repair, err := newServer(cfg).ensureDataStore(mustJSON(t, map[string]any{
+		"package": "example",
+		"paths":   []string{"data/missing"},
+	}))
+	if err != nil || !repair.Inspection.Healthy || !repair.Inspection.Resources[0].Exists {
+		t.Fatalf("repair = %+v, %v", repair, err)
+	}
 
 	for _, path := range []string{"../escape", "/etc/passwd", "data/../.."} {
 		got, err := newServer(cfg).inspectDataStore(mustJSON(t, map[string]any{
@@ -277,6 +284,25 @@ func TestReadPackageLog(t *testing.T) {
 		`{"package":"../messages","source":"installer"}`,
 	} {
 		if _, err := srv.readPackageLog(context.Background(), json.RawMessage(args)); err == nil {
+			t.Errorf("accepted invalid arguments: %s", args)
+		}
+	}
+}
+
+func TestPackageLifecycle(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "synopkg")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := defaultConfig()
+	cfg.SynopkgBin = bin
+	res, err := newServer(cfg).packageLifecycle(context.Background(), json.RawMessage(`{"package":"victoriametrics","action":"start"}`))
+	if err != nil || res.ExitCode != 0 || res.Stdout != "start\nvictoriametrics\n" {
+		t.Fatalf("packageLifecycle = %+v, %v", res, err)
+	}
+	for _, args := range []string{`{"package":"../escape","action":"start"}`, `{"package":"victoriametrics","action":"shell"}`} {
+		if _, err := newServer(cfg).packageLifecycle(context.Background(), json.RawMessage(args)); err == nil {
 			t.Errorf("accepted invalid arguments: %s", args)
 		}
 	}

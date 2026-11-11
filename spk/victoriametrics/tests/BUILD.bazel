@@ -386,6 +386,7 @@ write_file(
         "chmod 0755 \"${LOG_DIR}\" 2>/dev/null || true",
         "",
         "chown -R sc-victoriametrics \"${SHARE_DIR}\" \"${LOG_DIR}\" 2>/dev/null || true",
+        "chmod -R u+rwX,g+rwX \"${SHARE_DIR}\" \"${LOG_DIR}\" 2>/dev/null || true",
         "",
         "exit 0",
     ],
