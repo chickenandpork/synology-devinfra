@@ -3,6 +3,7 @@ load("@bazel_skylib//rules:diff_test.bzl", "diff_test")
 load("@bazel_skylib//rules:write_file.bzl", "write_file")
 load("@rules_pkg//pkg:verify_archive.bzl", "verify_archive_test")
 load("@rules_synology//:defs.bzl", "spk_component")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load("//spk/mcpserver:platform_suffix.bzl", "platform_suffixed_spks")
 
 copy_file(
@@ -116,6 +117,9 @@ write_file(
         "Restart=on-failure",
         "RestartSec=5",
         "",
+        "[Install]",
+        "WantedBy=multi-user.target",
+        "",
     ],
 )
 
@@ -222,6 +226,20 @@ diff_test(
     size = "small",
     file1 = ":postinst_expected",
     file2 = ":extract_postinst",
+)
+
+sh_test(
+    name = "auto_start_test",
+    size = "small",
+    srcs = ["auto_start_test.sh"],
+    args = [
+        "$(location :extract_service_unit)",
+        "$(location :extract_postinst)",
+    ],
+    data = [
+        ":extract_postinst",
+        ":extract_service_unit",
+    ],
 )
 
 diff_test(
